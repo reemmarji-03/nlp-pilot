@@ -15,6 +15,9 @@ import tempfile, os
 
 nltk.download("punkt", quiet=True)
 nltk.download('punkt_tab')
+from nltk.corpus import stopwords
+nltk.download("stopwords", quiet=True)
+STOPWORDS = set(stopwords.words("english"))
 
 
 class EnglishTab(ctk.CTkFrame):
@@ -112,11 +115,17 @@ class EnglishTab(ctk.CTkFrame):
     def word_freq(self):
         if not self.text:
             return messagebox.showwarning("Warning", "Please upload a file first.")
+
         words = word_tokenize(self.text.lower())
-        words = [re.sub(r'[^a-zA-Z]+', '', w) for w in words if w.isalpha()]
+        words = [
+            re.sub(r'[^a-zA-Z]+', '', w)
+            for w in words
+            if w.isalpha() and w not in STOPWORDS
+        ]
         freq = Counter(words).most_common(20)
+
         self.output.delete("1.0", "end")
-        self.output.insert("end", "\n🔠 Top 20 Words\n", "left")
+        self.output.insert("end", "\n🔠 Top 20 Words (excluding stopwords)\n", "left")
         self.output.insert("end", "-"*40 + "\n", "left")
         for w, c in freq:
             self.output.insert("end", f"{w:<15}{c:>5}\n", "left")
@@ -143,12 +152,38 @@ class EnglishTab(ctk.CTkFrame):
     def named_entities(self):
         if not self.text:
             return messagebox.showwarning("Warning", "Please upload a file first.")
+        
         ents = self.ner_model(self.text[:1000])
+        cleaned = []
+        buffer_word, buffer_label, scores = "", "", []
+
+        for e in ents:
+            word = e["word"]
+            label = e["entity"]
+            score = e["score"]
+
+            # Merge subwords (##...)
+            if word.startswith("##"):
+                buffer_word += word[2:]
+                scores.append(score)
+            else:
+                # flush previous entity
+                if buffer_word:
+                    cleaned.append((buffer_word, buffer_label, sum(scores)/len(scores)))
+                buffer_word = word
+                buffer_label = label
+                scores = [score]
+
+        if buffer_word:
+            cleaned.append((buffer_word, buffer_label, sum(scores)/len(scores)))
+
+        # Show cleaned results
         self.output.delete("1.0", "end")
         self.output.insert("end", "\n🧬 Named Entities\n", "left")
         self.output.insert("end", "-"*40 + "\n", "left")
-        for e in ents:
-            self.output.insert("end", f"{e['word']:<25}{e['entity']:<15}{e['score']:.2f}\n", "left")
+
+        for word, label, score in cleaned:
+            self.output.insert("end", f"{word:<25}{label:<10}{score:.2f}\n", "left")
 
     # ------------------------- Readability -------------------------
     def readability(self):
