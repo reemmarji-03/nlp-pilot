@@ -1,0 +1,10 @@
+customtkinter
+nltk 
+spacy 
+transformers 
+sentencepiece 
+torch
+python-docx
+pdfplumber
+sklearn
+
