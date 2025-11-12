@@ -6,6 +6,12 @@ from nltk.tokenize import word_tokenize
 from transformers import pipeline
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet
+import tempfile, os
 
 nltk.download("punkt", quiet=True)
 nltk.download('punkt_tab')
@@ -44,6 +50,8 @@ class EnglishTab(ctk.CTkFrame):
         self.add_button(sidebar, "💬 Sentiment", self.sentiment)
         self.add_button(sidebar, "🧬 Named Entities", self.named_entities)
         self.add_button(sidebar, "📚 Readability", self.readability)
+        self.add_button(sidebar, "📈 Generate Charts", self.generate_charts)
+        self.add_button(sidebar, "🧾 Export PDF Report", self.export_report)
 
         # === Output area with embedded file label ===
         output_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=10)
@@ -159,3 +167,101 @@ class EnglishTab(ctk.CTkFrame):
         else:
             level = "Advanced reading level (academic/technical)."
         self.output.insert("end", f"Interpretation: {level}\n", "left")
+
+    # ------------------------- Charts -------------------------
+    def generate_charts(self):
+        if not self.text:
+            return messagebox.showwarning("Warning", "Please upload a file first.")
+        
+        # ---- Word Frequency ----
+        words = word_tokenize(self.text.lower())
+        words = [re.sub(r'[^a-zA-Z]+', '', w) for w in words if w.isalpha()]
+        freq = Counter(words).most_common(10)
+        labels, values = zip(*freq)
+
+        fig, ax = plt.subplots(figsize=(6,4))
+        ax.barh(labels, values, color="#0078ff")
+        ax.set_xlabel("Count")
+        ax.set_ylabel("Word")
+        ax.set_title("Top 10 Words")
+
+        plt.tight_layout()
+
+        # Embed chart into Tkinter
+        chart_window = ctk.CTkToplevel(self)
+        chart_window.title("Word Frequency Chart")
+        chart_window.geometry("650x450")
+        chart_window.configure(fg_color="#0f0f0f")
+
+        canvas = FigureCanvasTkAgg(fig, master=chart_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+
+    # ------------------------- Export Report -------------------------
+    def export_report(self):
+        if not self.text:
+            return messagebox.showwarning("Warning", "Please upload a file first.")
+
+        # ====== Compute analyses ======
+        sentiment = self.sentiment_model(self.text[:500])[0]
+        readability = textstat.flesch_kincaid_grade(self.text)
+        words = word_tokenize(self.text.lower())
+        words = [re.sub(r'[^a-zA-Z]+', '', w) for w in words if w.isalpha()]
+        freq = Counter(words).most_common(10)
+        labels, values = zip(*freq)
+
+        # ====== Create chart images ======
+        fig, ax = plt.subplots(figsize=(5,3))
+        ax.barh(labels, values, color="#0078ff")
+        ax.set_xlabel("Count")
+        ax.set_title("Top 10 Words")
+        chart_path = self.save_chart_image(fig, "freq_chart.png")
+        plt.close(fig)
+
+        # ====== Create PDF ======
+        temp_pdf = os.path.join(tempfile.gettempdir(), "NLP_Report.pdf")
+        doc = SimpleDocTemplate(temp_pdf, pagesize=A4)
+        styles = getSampleStyleSheet()
+        story = []
+
+        title_style = styles["Title"]
+        title_style.textColor = "#0078ff"
+        story.append(Paragraph("🧠 NLP Document Analysis Report", title_style))
+        story.append(Spacer(1, 12))
+
+        # File info
+        story.append(Paragraph(f"<b>📂 File:</b> {self.file_name}", styles["Normal"]))
+        story.append(Spacer(1, 6))
+
+        # Sentiment
+        story.append(Paragraph("<b>💬 Sentiment Analysis</b>", styles["Heading2"]))
+        story.append(Paragraph(f"Result: {sentiment['label']} ({sentiment['score']:.3f})", styles["Normal"]))
+        story.append(Spacer(1, 12))
+
+        # Readability
+        story.append(Paragraph("<b>📚 Readability</b>", styles["Heading2"]))
+        story.append(Paragraph(f"Flesch–Kincaid Grade: {readability:.2f}", styles["Normal"]))
+        story.append(Spacer(1, 12))
+
+        # Word frequency chart
+        story.append(Paragraph("<b>🔠 Word Frequency</b>", styles["Heading2"]))
+        story.append(Spacer(1, 6))
+        story.append(RLImage(chart_path, width=400, height=250))
+        story.append(Spacer(1, 12))
+
+        # Footer
+        story.append(Paragraph("<font color='#888888'>Generated automatically by NLP Pilot</font>", styles["Normal"]))
+
+        doc.build(story)
+        messagebox.showinfo("Report Generated", f"✅ Report saved to:\n{temp_pdf}")
+        os.startfile(temp_pdf)
+
+    # ------------------------- Helper Functions -------------------------
+
+    def save_chart_image(self, fig, name):
+        temp_dir = tempfile.gettempdir()
+        path = os.path.join(temp_dir, name)
+        fig.savefig(path, bbox_inches="tight", facecolor="#ffffff")
+        return path
+

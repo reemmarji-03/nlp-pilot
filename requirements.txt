@@ -8,4 +8,6 @@ python-docx
 pdfplumber
 sklearn
 textstat
+matplotlib
+reportlab
 
