@@ -1,261 +1,161 @@
 import customtkinter as ctk
-from tkinter import filedialog
-from PIL import Image
-import pdfplumber
-import docx
-import nltk
-from nltk.tokenize import word_tokenize
+from tkinter import filedialog, messagebox
+import pdfplumber, docx, re, nltk, textstat
 from collections import Counter
+from nltk.tokenize import word_tokenize
 from transformers import pipeline
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
-nltk.download("punkt")
+
+nltk.download("punkt", quiet=True)
+nltk.download('punkt_tab')
 
 
 class EnglishTab(ctk.CTkFrame):
-
     def __init__(self, parent):
-        super().__init__(parent)
-        self.pack(fill="both", expand=True)
+        super().__init__(parent, fg_color="#0f0f0f")
+        self.text = ""
+        self.file_name = ""
+        self.sentiment_model = pipeline("sentiment-analysis",
+            model="distilbert-base-uncased-finetuned-sst-2-english")
+        self.ner_model = pipeline("ner", model="dslim/bert-base-NER")
+        self.build_ui()
 
-        # UI theme cleanup (remove grey)
-        self.configure(fg_color="transparent")
+    # =======================================================
+    # BUILD INTERFACE
+    # =======================================================
+    def build_ui(self):
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        self.sidebar_expanded = True
-        self.text = ""  # stores loaded document
-        self.file_name = "No file yet"
-
-        # Preload sentiment model
-        self.sentiment_model = pipeline(
-            "sentiment-analysis",
-            model="distilbert-base-uncased-finetuned-sst-2-english"
-        )
-
-        self.create_layout()
-
-    # ==================================================
-    # MAIN LAYOUT
-    # ==================================================
-    def create_layout(self):
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
-
-        # Left Sidebar
-        self.sidebar = ctk.CTkFrame(
-            self, width=240,
-            corner_radius=15,
-            fg_color="#1f1b29", border_width=0
-        )
-        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=10, pady=10)
-
-        # Main content area
-        self.main_area = ctk.CTkFrame(
-            self, corner_radius=15,
-            fg_color="#121214", border_width=0
-        )
-        self.main_area.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
-
-        self.build_sidebar()
-        self.build_dashboard()
-
-    # ==================================================
-    # SIDEBAR WITH ICON BUTTONS
-    # ==================================================
-    def build_sidebar(self):
-        for child in self.sidebar.winfo_children():
-            child.destroy()
+        # Sidebar
+        sidebar = ctk.CTkFrame(self, fg_color="#121212", corner_radius=10)
+        sidebar.grid(row=0, column=0, sticky="ns", padx=(10,5), pady=10)
 
         ctk.CTkLabel(
-            self.sidebar, text="English NLP Analysis",
-            font=ctk.CTkFont(size=20, weight="bold")
-        ).pack(pady=20)
+            sidebar,
+            text="English NLP Tools",
+            text_color="#6ea8fe",
+            font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(pady=(15,20))
 
-        ctk.CTkButton(
-            self.sidebar,
-            text="⮜ Collapse",
-            command=self.toggle_sidebar,
-            fg_color="#8b39ef"
-        ).pack(pady=10, fill="x")
+        self.add_button(sidebar, "📂 Upload File", self.upload_file)
+        self.add_button(sidebar, "🔠 Word Frequency", self.word_freq)
+        self.add_button(sidebar, "💬 Sentiment", self.sentiment)
+        self.add_button(sidebar, "🧬 Named Entities", self.named_entities)
+        self.add_button(sidebar, "📚 Readability", self.readability)
 
-        # Actual NLP Buttons
-        self.add_icon_button("Upload Document", "upload.png", self.upload_file)
-        self.add_icon_button("Word Frequency", "freq.png", self.do_word_frequency)
-        self.add_icon_button("Topic Modeling", "lda.png", self.do_topic_modeling)
-        self.add_icon_button("Sentiment Analysis", "sentiment.png", self.do_sentiment)
-        self.add_icon_button("Summarize Document", "summary.png", self.fake_action)
+        # === Output area with embedded file label ===
+        output_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=10)
+        output_frame.grid(row=0, column=1, sticky="nsew", padx=(5,10), pady=10)
 
-    def add_icon_button(self, text, icon_name, callback):
-        try:
-            icon = ctk.CTkImage(
-                light_image=Image.open(f"assets/icons/{icon_name}"),
-                dark_image=Image.open(f"assets/icons/{icon_name}"),
-                size=(20, 20)
-            )
-        except:
-            icon = None
-
-        ctk.CTkButton(
-            self.sidebar,
-            text=text,
-            image=icon,
-            compound="left",
-            height=40,
-            fg_color="#8b39ef",
-            hover_color="#d3b2ff",
-            command=callback
-        ).pack(pady=8, fill="x")
-
-    # ==================================================
-    # COLLAPSIBLE SIDEBAR
-    # ==================================================
-    def toggle_sidebar(self):
-        if self.sidebar_expanded:
-            self.sidebar.configure(width=70)
-            for child in self.sidebar.winfo_children():
-                child.pack_forget()
-            self.sidebar_expanded = False
-        else:
-            self.sidebar.configure(width=240)
-            self.build_sidebar()
-            self.sidebar_expanded = True
-
-    # ==================================================
-    # DASHBOARD
-    # ==================================================
-    def build_dashboard(self):
-        top_frame = ctk.CTkFrame(
-            self.main_area,
-            corner_radius=15,
-            fg_color="#1f1b29"
+        # small file label inside frame
+        self.file_label = ctk.CTkLabel(
+            output_frame,
+            text="No file loaded",
+            anchor="w",
+            text_color="#6ea8fe",
+            fg_color="#1a1a1a",
+            font=ctk.CTkFont(size=12, weight="bold")
         )
-        top_frame.pack(fill="x", pady=10)
+        self.file_label.pack(anchor="w", padx=10, pady=(6,2))
 
-        self.card_file = self.create_card(top_frame, "Uploaded File", self.file_name)
-        self.card_wordcount = self.create_card(top_frame, "Word Count", "0")
-        self.card_sentiment = self.create_card(top_frame, "Sentiment", "–")
-
+        # main output textbox
         self.output = ctk.CTkTextbox(
-            self.main_area, height=400,
-            corner_radius=15, fg_color="#1f1b29",
-            text_color="white", border_width=0
+            output_frame,
+            fg_color="#1a1a1a",
+            text_color="white",
+            font=("Consolas", 13),
+            wrap="word"
         )
-        self.output.pack(fill="both", expand=True, pady=10)
+        self.output.pack(fill="both", expand=True, padx=10, pady=(0,10))
+        self.output._textbox.tag_configure("left", justify="left")
 
-    def create_card(self, parent, title, value):
-        card = ctk.CTkFrame(parent, corner_radius=15, fg_color="#1f1b29")
-        card.pack(side="left", padx=20, pady=10, fill="x", expand=True)
+    def add_button(self, parent, text, command):
+        ctk.CTkButton(parent, text=text, command=command,
+                      fg_color="#0078ff", hover_color="#005dc1",
+                      corner_radius=6, height=38,
+                      font=ctk.CTkFont(size=14)
+        ).pack(fill="x", padx=10, pady=6)
 
-        label_title = ctk.CTkLabel(
-            card, text=title, font=ctk.CTkFont(size=14, weight="bold")
-        )
-        label_title.pack(pady=(10, 0))
-
-        label_value = ctk.CTkLabel(
-            card, text=value, font=ctk.CTkFont(size=24, weight="bold")
-        )
-        label_value.pack(pady=10)
-
-        return label_value  # return value label for updates
-
-    # ==================================================
-    # NLP ACTIONS
-    # ==================================================
+    # =======================================================
+    # FUNCTIONS
+    # =======================================================
     def upload_file(self):
-        self.file_path = filedialog.askopenfilename(
-            filetypes=[("Documents", "*.pdf *.docx *.txt")]
-        )
-        if not self.file_path:
+        path = filedialog.askopenfilename(filetypes=[("Documents", "*.pdf *.docx *.txt")])
+        if not path:
             return
-
-        self.text = self.extract_text_from_file(self.file_path)
-        self.file_name = self.file_path.split("/")[-1]
-
-        self.card_file.configure(text=self.file_name)
-        self.card_wordcount.configure(text=str(len(self.text.split())))
-        self.output.insert("end", f"[✓] Loaded file: {self.file_name}\n")
-
-    def extract_text_from_file(self, path):
         if path.endswith(".txt"):
             with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-
+                self.text = f.read()
         elif path.endswith(".docx"):
             doc = docx.Document(path)
-            return "\n".join([p.text for p in doc.paragraphs])
-
+            self.text = "\n".join(p.text for p in doc.paragraphs)
         elif path.endswith(".pdf"):
             text = ""
             with pdfplumber.open(path) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
-            return text
+                for p in pdf.pages:
+                    text += (p.extract_text() or "") + "\n"
+            self.text = text
+        self.file_name = path.split("/")[-1]
+        self.file_label.configure(text=f"📂  {self.file_name}")
 
-    # -------------------------
-    # Word Frequency
-    # -------------------------
-    def do_word_frequency(self):
+    # ------------------------- Word Frequency -------------------------
+    def word_freq(self):
         if not self.text:
-            return self.output.insert("end", "No document loaded.\n")
+            return messagebox.showwarning("Warning", "Please upload a file first.")
+        words = word_tokenize(self.text.lower())
+        words = [re.sub(r'[^a-zA-Z]+', '', w) for w in words if w.isalpha()]
+        freq = Counter(words).most_common(20)
+        self.output.delete("1.0", "end")
+        self.output.insert("end", "\n🔠 Top 20 Words\n", "left")
+        self.output.insert("end", "-"*40 + "\n", "left")
+        for w, c in freq:
+            self.output.insert("end", f"{w:<15}{c:>5}\n", "left")
 
-        freq = self.compute_word_frequency(self.text)
-        self.output.insert("end", "\n[Word Frequency]\n")
-        for word, count in freq:
-            self.output.insert("end", f"{word}: {count}\n")
-
-    def compute_word_frequency(self, text):
-        words = word_tokenize(text.lower())
-        freq = Counter(words)
-        return freq.most_common(20)
-
-    # -------------------------
-    # Sentiment
-    # -------------------------
-    def do_sentiment(self):
+    # ------------------------- Sentiment -------------------------
+    def sentiment(self):
         if not self.text:
-            return self.output.insert("end", "No document loaded.\n")
-
-        result = self.analyze_sentiment(self.text)
+            return messagebox.showwarning("Warning", "Please upload a file first.")
+        result = self.sentiment_model(self.text[:500])[0]
         label = result["label"]
-        score = round(result["score"], 3)
+        score = result["score"]
+        explanation = {
+            "POSITIVE": "Optimistic or confident tone.",
+            "NEGATIVE": "Critical or dissatisfied tone.",
+            "NEUTRAL": "Balanced, factual tone."
+        }.get(label, "Unclear tone detected.")
+        self.output.delete("1.0", "end")
+        self.output.insert("end", f"\n💬 Sentiment Analysis\n", "left")
+        self.output.insert("end", "-"*40 + "\n", "left")
+        self.output.insert("end", f"Label: {label}\nScore: {score:.3f}\n", "left")
+        self.output.insert("end", f"Interpretation: {explanation}\n", "left")
 
-        self.card_sentiment.configure(text=label)
-        self.output.insert("end", f"\n[Sentiment] → {label} ({score})\n")
-
-    def analyze_sentiment(self, text):
-        return self.sentiment_model(text[:500])[0]
-
-    # -------------------------
-    # Topic Modeling (LDA)
-    # -------------------------
-    def do_topic_modeling(self):
+    # ------------------------- Named Entities -------------------------
+    def named_entities(self):
         if not self.text:
-            return self.output.insert("end", "No document loaded.\n")
+            return messagebox.showwarning("Warning", "Please upload a file first.")
+        ents = self.ner_model(self.text[:1000])
+        self.output.delete("1.0", "end")
+        self.output.insert("end", "\n🧬 Named Entities\n", "left")
+        self.output.insert("end", "-"*40 + "\n", "left")
+        for e in ents:
+            self.output.insert("end", f"{e['word']:<25}{e['entity']:<15}{e['score']:.2f}\n", "left")
 
-        topics = self.run_lda(self.text)
-        self.output.insert("end", "\n[Topics]\n")
-        for idx, words in topics:
-            self.output.insert("end", f"Topic {idx}: {', '.join(words)}\n")
-
-    def run_lda(self, text, n_topics=3):
-        vectorizer = CountVectorizer(stop_words="english")
-        X = vectorizer.fit_transform([text])
-
-        lda = LatentDirichletAllocation(n_components=n_topics, random_state=42)
-        lda.fit(X)
-
-        words = vectorizer.get_feature_names_out()
-
-        topics = []
-        for topic_idx, topic in enumerate(lda.components_):
-            top_words = [words[i] for i in topic.argsort()[-8:]]
-            topics.append((topic_idx, top_words))
-        return topics
-
-    # -------------------------
-    # Placeholder
-    # -------------------------
-    def fake_action(self):
-        self.output.insert("end", "[TODO] Feature under construction.\n")
-
+    # ------------------------- Readability -------------------------
+    def readability(self):
+        if not self.text:
+            return messagebox.showwarning("Warning", "Please upload a file first.")
+        ease = textstat.flesch_reading_ease(self.text)
+        grade = textstat.flesch_kincaid_grade(self.text)
+        self.output.delete("1.0", "end")
+        self.output.insert("end", "\n📚 Readability Analysis\n", "left")
+        self.output.insert("end", "-"*40 + "\n", "left")
+        self.output.insert("end", f"Reading Ease: {ease:.2f}\nGrade Level: {grade:.2f}\n", "left")
+        if grade <= 6:
+            level = "Easy to read (simple language)."
+        elif grade <= 10:
+            level = "Moderately complex text."
+        else:
+            level = "Advanced reading level (academic/technical)."
+        self.output.insert("end", f"Interpretation: {level}\n", "left")

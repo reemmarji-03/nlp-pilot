@@ -7,4 +7,5 @@ torch
 python-docx
 pdfplumber
 sklearn
+textstat
 
