@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import ttk
-from tabs.english_tab import EnglishTab
+from tabs.english import EnglishTab
 import lookups
 
 class NLPApp(ctk.CTk):
@@ -11,7 +11,7 @@ class NLPApp(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
 
-        # --- notebook-based tabs ---
+        # notebook-based tabs
         style = ttk.Style()
         style.theme_use('clam')
         style.configure("TNotebook", background="#0f0f0f", borderwidth=0)

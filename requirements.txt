@@ -2,12 +2,12 @@ customtkinter
 nltk 
 spacy 
 transformers 
-sentencepiece 
-torch
+sentencepiece
 python-docx
 pdfplumber
-sklearn
+scikit-learn
 textstat
 matplotlib
 reportlab
-
+torch
+pandas
