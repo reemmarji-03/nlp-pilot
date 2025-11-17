@@ -11,4 +11,11 @@ matplotlib
 reportlab
 torch
 pandas
-langchain
+langchain>=0.2.17
+langchain-community>=0.2.5
+langchain-openai>=0.1.8
+langchain-text-splitters>=0.2.2
+langchain-ollama>=1.0.0
+langchain-huggingface
+faiss-cpu
+sentence-transformers
