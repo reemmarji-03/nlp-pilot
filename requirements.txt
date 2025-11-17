@@ -11,3 +11,4 @@ matplotlib
 reportlab
 torch
 pandas
+langchain
