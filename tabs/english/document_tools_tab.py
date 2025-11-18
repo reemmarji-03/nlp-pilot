@@ -49,7 +49,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         self.add_button(sidebar, "🔠 Word Frequency", self.word_freq)
         self.add_button(sidebar, "💬 Sentiment", self.sentiment)
         self.add_button(sidebar, "🧬 Named Entities", self.named_entities)
-        self.add_button(sidebar, "📚 Readability", self.readability)
+        # self.add_button(sidebar, "📚 Readability", self.readability)
         self.add_button(sidebar, "📈 Generate Charts", self.generate_charts)
         self.add_button(sidebar, "🧾 Export PDF Report", self.export_report)
 
@@ -67,14 +67,18 @@ class DocumentToolsTab(ctk.CTkFrame):
         )
         self.file_label.pack(anchor="w", padx=10, pady=(6, 2))
 
+        self.output_container = ctk.CTkFrame(output_frame, fg_color="#1a1a1a")
+        self.output_container.pack(fill="both", expand=True, padx=10, pady=(0,10))
+
         self.output = ctk.CTkTextbox(
-            output_frame,
+            self.output_container,
             fg_color="#1a1a1a",
             text_color="white",
             font=("Consolas", 13),
             wrap="word"
         )
-        self.output.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.output.pack(fill="both", expand=True)
+
         self.output._textbox.tag_configure("left", justify="left")
 
     def add_button(self, parent, text, command):
@@ -211,6 +215,7 @@ class DocumentToolsTab(ctk.CTkFrame):
             remove_stopwords=False
         )
 
+        self.show_textbox()
         self.output.delete("1.0", "end")
         self.output.insert("end", "\n🔠 Top 20 Words", "left")
         self.output.insert("end", "-" * 40 + "\n", "left")
@@ -234,6 +239,7 @@ class DocumentToolsTab(ctk.CTkFrame):
             "NEUTRAL": "Balanced, factual tone."
         }.get(label, "Unclear tone detected.")
 
+        self.show_textbox()
         self.output.delete("1.0", "end")
         self.output.insert("end", f"\n💬 Sentiment Analysis\n", "left")
         self.output.insert("end", "-" * 40 + "\n", "left")
@@ -251,6 +257,7 @@ class DocumentToolsTab(ctk.CTkFrame):
 
         label_counts = Counter(lbl for _, lbl, _ in cleaned)
 
+        self.show_textbox()
         self.output.delete("1.0", "end")
         self.output.insert("end", "\n🧬 Named Entities\n", "left")
         self.output.insert("end", "-" * 40 + "\n", "left")
@@ -271,6 +278,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         ease, grade = enlp.readability_scores(text)
         level = enlp.readability_level(grade)
 
+        self.show_textbox()
         self.output.delete("1.0", "end")
         self.output.insert("end", "\n📚 Readability Analysis\n", "left")
         self.output.insert("end", "-" * 40 + "\n", "left")
@@ -291,14 +299,9 @@ class DocumentToolsTab(ctk.CTkFrame):
         )
         fig = enlp.build_word_freq_figure(freq, title="Top 10 Words")
 
-        chart_window = ctk.CTkToplevel(self)
-        chart_window.title("Word Frequency Chart")
-        chart_window.geometry("650x450")
-        chart_window.configure(fg_color="#0f0f0f")
+        # Show inside output area
+        self.show_chart(fig)
 
-        canvas = FigureCanvasTkAgg(fig, master=chart_window)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
 
     def export_report(self):
         if not self.require_text():
@@ -327,27 +330,27 @@ class DocumentToolsTab(ctk.CTkFrame):
         story = []
 
         title_style = styles["Title"]
-        story.append(Paragraph("🧠 NLP Document Analysis Report", title_style))
+        story.append(Paragraph("NLP Document Analysis Report", title_style))
         story.append(Spacer(1, 12))
 
-        story.append(Paragraph(f"<b>📂 File:</b> {self.state.file_name}", styles["Normal"]))
+        story.append(Paragraph(f"<b>File:</b> {self.state.file_name}", styles["Normal"]))
         story.append(Spacer(1, 6))
 
-        story.append(Paragraph("<b>💬 Sentiment Analysis</b>", styles["Heading2"]))
+        story.append(Paragraph("<b>Sentiment Analysis</b>", styles["Heading2"]))
         story.append(Paragraph(
             f"Result: {sentiment['label']} ({sentiment['score']:.3f})",
             styles["Normal"]
         ))
         story.append(Spacer(1, 12))
 
-        story.append(Paragraph("<b>📚 Readability</b>", styles["Heading2"]))
+        story.append(Paragraph("<b>Readability</b>", styles["Heading2"]))
         story.append(Paragraph(
             f"Flesch–Kincaid Grade: {grade:.2f}",
             styles["Normal"]
         ))
         story.append(Spacer(1, 12))
 
-        story.append(Paragraph("<b>🔠 Word Frequency</b>", styles["Heading2"]))
+        story.append(Paragraph("<b>Word Frequency</b>", styles["Heading2"]))
         story.append(Spacer(1, 6))
         if freq:
             story.append(RLImage(chart_path, width=400, height=250))
@@ -372,6 +375,32 @@ class DocumentToolsTab(ctk.CTkFrame):
         path = os.path.join(temp_dir, name)
         fig.savefig(path, bbox_inches="tight", facecolor="#ffffff")
         return path
+    
+    def show_textbox(self):
+        """Restore the text output and remove any chart canvas."""
+        for w in self.output_container.winfo_children():
+            w.destroy()
+
+        # Recreate textbox
+        self.output = ctk.CTkTextbox(
+            self.output_container,
+            fg_color="#1a1a1a",
+            text_color="white",
+            font=("Consolas", 13),
+            wrap="word"
+        )
+        self.output.pack(fill="both", expand=True)
+
+    def show_chart(self, fig):
+        """Replace the textbox with a Matplotlib chart."""
+        # Clear existing widgets (textbox or previous chart)
+        for w in self.output_container.winfo_children():
+            w.destroy()
+
+        canvas = FigureCanvasTkAgg(fig, master=self.output_container)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+
 
 
 class ColumnChoiceDialog(ctk.CTkToplevel):
@@ -420,3 +449,5 @@ class ColumnChoiceDialog(ctk.CTkToplevel):
     def _on_cancel(self):
         self.chosen = None
         self.destroy()
+
+
