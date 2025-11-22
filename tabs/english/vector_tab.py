@@ -198,15 +198,17 @@ class VectorTab(ctk.CTkFrame):
         )
         self.summary_box.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Features box
-        self.features_box = ctk.CTkTextbox(
+        # Features area ✅ (container for cards)
+        self.features_container = ctk.CTkFrame(
             features_tab,
             fg_color="#1a1a1a",
-            text_color="white",
-            font=("Consolas", 12),
-            wrap="word"
+            corner_radius=10,
         )
-        self.features_box.pack(fill="both", expand=True, padx=10, pady=10)
+        self.features_container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # we’ll put up to 3 cards in columns 0,1,2
+        for col in range(3):
+            self.features_container.grid_columnconfigure(col, weight=1)
 
         # Plot area
         self.plot_container = ctk.CTkFrame(plot_tab, fg_color="#1a1a1a")
@@ -306,6 +308,7 @@ class VectorTab(ctk.CTkFrame):
         ngram_range = self._parse_ngrams()
         max_features = self._parse_max_features()
 
+        # Build list of documents depending on mode (CSV rows vs single text)
         docs = self._build_docs_for_vectorization()
         if not docs:
             messagebox.showwarning(
@@ -321,6 +324,7 @@ class VectorTab(ctk.CTkFrame):
                 docs = docs[:256]
                 truncated = True
 
+        # --- Run vectorization ---
         try:
             if method == "Bag-of-Words":
                 res, _ = vec.vectorize_bow(
@@ -371,21 +375,155 @@ class VectorTab(ctk.CTkFrame):
                 "\nNote: Transformer embeddings computed on first 256 rows for speed.\n"
             )
 
-        # --- Top features ---
-        self.features_box.delete("1.0", "end")
-        if res.top_features:
-            label = "first document"
-            if enlp.is_csv_mode(self.state):
-                label = f"first row of '{self.state.csv_text_column}'"
-            self.features_box.insert("end", f"Top features ({label}):\n")
-            self.features_box.insert("end", "-" * 40 + "\n")
-            for feat, val in res.top_features:
-                self.features_box.insert("end", f"{feat:<25} {val:.4f}\n")
-        else:
-            self.features_box.insert(
-                "end",
-                "Top features not available for this method (dense embeddings).\n"
+        # --- Top features as side-by-side cards ---
+        # Make sure you have: self._clear_features() and self.features_container defined.
+        self._clear_features()
+
+        # Dense transformer embeddings don't have feature weights
+        if not res.is_sparse:
+            card = ctk.CTkFrame(
+                self.features_container,
+                fg_color="#222222",
+                corner_radius=10
             )
+            card.grid(row=0, column=0, sticky="nsew", padx=5, pady=5, columnspan=3)
+
+            ctk.CTkLabel(
+                card,
+                text="Top features not available for dense embeddings.",
+                text_color="#dddddd",
+                font=ctk.CTkFont(size=13)
+            ).pack(padx=10, pady=10)
+            return
+
+        # Sparse case: we can inspect per-feature weights
+        feature_names = res.vocab or []
+        X = res.vector  # sparse matrix
+
+        import random
+
+        if enlp.is_csv_mode(self.state):
+            # Sample up to 3 random rows
+            n_samples_mat = X.shape[0]
+            num_samples = min(3, n_samples_mat)
+            if num_samples == 0:
+                card = ctk.CTkFrame(
+                    self.features_container,
+                    fg_color="#222222",
+                    corner_radius=10
+                )
+                card.grid(row=0, column=0, sticky="nsew", padx=5, pady=5, columnspan=3)
+                ctk.CTkLabel(
+                    card,
+                    text="No non-empty rows to show top features.",
+                    text_color="#dddddd",
+                    font=ctk.CTkFont(size=13)
+                ).pack(padx=10, pady=10)
+                return
+
+            indices = random.sample(range(n_samples_mat), num_samples)
+
+            # Header label
+            header = ctk.CTkLabel(
+                self.features_container,
+                text=(
+                    f"Sampled top features from {num_samples} random rows "
+                    f"of column '{self.state.csv_text_column}':"
+                ),
+                text_color="#ffffff",
+                font=ctk.CTkFont(size=14, weight="bold")
+            )
+            header.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8), padx=5)
+
+            for col_idx, idx in enumerate(indices):
+                card = ctk.CTkFrame(
+                    self.features_container,
+                    fg_color="#222222",
+                    corner_radius=10
+                )
+                card.grid(row=1, column=col_idx, sticky="nsew", padx=5, pady=5)
+
+                # Row title
+                ctk.CTkLabel(
+                    card,
+                    text=f"Row {idx + 1}",
+                    text_color="#6ea8fe",
+                    font=ctk.CTkFont(size=13, weight="bold")
+                ).pack(anchor="w", padx=8, pady=(6, 2))
+
+                # Snippet of original (preprocessed) text
+                row_text = docs[idx]
+                snippet = row_text.replace("\n", " ")
+                if len(snippet) > 200:
+                    snippet = snippet[:200] + "..."
+
+                ctk.CTkLabel(
+                    card,
+                    text=snippet,
+                    text_color="#dddddd",
+                    font=ctk.CTkFont(size=11),
+                    wraplength=220,
+                    justify="left"
+                ).pack(anchor="w", padx=8, pady=(0, 6))
+
+                # Top features for that row
+                top_row_feats = vec._top_k_from_sparse_row(X[idx], feature_names, k=8)
+
+                ctk.CTkLabel(
+                    card,
+                    text="Top features:",
+                    text_color="#ffffff",
+                    font=ctk.CTkFont(size=12, weight="bold")
+                ).pack(anchor="w", padx=8, pady=(2, 0))
+
+                features_text = "\n".join(
+                    f"{feat:<15} {val:.3f}" for feat, val in top_row_feats
+                ) or "(no non-zero features)"
+
+                features_box = ctk.CTkTextbox(
+                    card,
+                    height=120,
+                    fg_color="#1a1a1a",
+                    text_color="white",
+                    font=("Consolas", 11),
+                    wrap="word"
+                )
+                features_box.pack(fill="both", expand=True, padx=8, pady=(2, 8))
+                features_box.insert("end", features_text)
+                features_box.configure(state="disabled")
+
+        else:
+            # Single-document case: one wide card
+            card = ctk.CTkFrame(
+                self.features_container,
+                fg_color="#222222",
+                corner_radius=10
+            )
+            card.grid(row=0, column=0, sticky="nsew", padx=5, pady=5, columnspan=3)
+
+            ctk.CTkLabel(
+                card,
+                text="Top features (full document):",
+                text_color="#6ea8fe",
+                font=ctk.CTkFont(size=14, weight="bold")
+            ).pack(anchor="w", padx=8, pady=(8, 4))
+
+            top = vec._top_k_from_sparse_row(X[0], feature_names, k=20)
+            features_text = "\n".join(
+                f"{feat:<20} {val:.4f}" for feat, val in top
+            ) or "(no non-zero features)"
+
+            features_box = ctk.CTkTextbox(
+                card,
+                fg_color="#1a1a1a",
+                text_color="white",
+                font=("Consolas", 12),
+                wrap="word",
+                height=240
+            )
+            features_box.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+            features_box.insert("end", features_text)
+            features_box.configure(state="disabled")
 
     def compute_similarity(self):
         """
@@ -544,3 +682,10 @@ class VectorTab(ctk.CTkFrame):
         self.plot_canvas = FigureCanvasTkAgg(self.plot_figure, master=self.plot_container)
         self.plot_canvas.draw()
         self.plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+
+
+    def _clear_features(self):
+        """Remove all existing feature cards."""
+        for child in self.features_container.winfo_children():
+            child.destroy()
+
