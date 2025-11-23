@@ -1,7 +1,7 @@
 # core/english_state.py
 
 from dataclasses import dataclass, field
-from typing import Optional, Set, Dict, Any
+from typing import Optional, Set, Dict, Any, Tuple
 from transformers import Pipeline
 import pandas as pd
 from core import english_nlp as enlp
@@ -39,3 +39,8 @@ class EnglishState:
     # For CSV mode
     df: Optional[pd.DataFrame] = None           # holds the loaded CSV (if any)
     csv_text_column: Optional[str] = None       # which column is the "text" column
+
+    #  Last vectorization settings (for Prediction tab to reuse) ---
+    last_vector_method: Optional[str] = None
+    last_vector_ngram: Optional[Tuple[int, int]] = None
+    last_vector_max_features: Optional[int] = None

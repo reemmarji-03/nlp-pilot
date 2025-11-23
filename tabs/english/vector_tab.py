@@ -593,6 +593,10 @@ class VectorTab(ctk.CTkFrame):
         ngram_range = self._parse_ngrams()
         max_features = self._parse_max_features()
 
+        self.state.last_vector_method = method
+        self.state.last_vector_ngram = ngram_range
+        self.state.last_vector_max_features = max_features
+
         # ---- Build docs + labels depending on mode ----
         if enlp.is_csv_mode(self.state):
             raw_docs = enlp.get_raw_documents_from_state(self.state)

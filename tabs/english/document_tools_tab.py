@@ -17,9 +17,8 @@ from reportlab.lib.styles import getSampleStyleSheet
 from core import english_nlp as enlp
 from core.english_state import EnglishState
 
-
 class DocumentToolsTab(ctk.CTkFrame):
-    def __init__(self, parent, state: EnglishState):
+    def __init__(self, parent, state: EnglishState, on_state_changed):
         super().__init__(parent, fg_color="#0f0f0f")
         self.state = state
 
@@ -28,6 +27,8 @@ class DocumentToolsTab(ctk.CTkFrame):
 
         self.build_ui()
         self.pack(fill="both", expand=True)
+
+        self.on_state_changed = on_state_changed
 
     # UI
     def build_ui(self):
@@ -148,6 +149,7 @@ class DocumentToolsTab(ctk.CTkFrame):
 
         if path.lower().endswith(".csv"):
             self._handle_csv_file(path)
+
         else:
             self._handle_text_like_file(path)
 
@@ -191,6 +193,10 @@ class DocumentToolsTab(ctk.CTkFrame):
         # enter CSV mode
         self.state.df = df
         self.state.csv_text_column = col
+
+        # update state for prediction
+
+        self.on_state_changed()
         # Clear text to make it obvious we're not in plain-text mode
         self.state.text = ""
         self.state.file_name = os.path.basename(path)
