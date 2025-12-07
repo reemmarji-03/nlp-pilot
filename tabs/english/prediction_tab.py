@@ -1,5 +1,7 @@
 # tabs/prediction_tab.py
-
+from sklearn.cluster import KMeans
+from bertopic import BERTopic
+from sklearn.feature_extraction.text import CountVectorizer
 import customtkinter as ctk
 from tkinter import messagebox
 
@@ -90,7 +92,10 @@ class PredictionTab(ctk.CTkFrame):
         self.cluster_plot_container = None
         self.cluster_plot_figure = None
         self.cluster_plot_canvas = None
-
+        self.topic_summary_box = None
+        self.topic_plot_container = None
+        self.topic_plot_figure = None
+        self.topic_plot_canvas = None
         # animated K-Means state
         self.cluster_canvas = None
         self.points = []          # list [[x,y], ...] PCA coords mapped to canvas
@@ -115,6 +120,8 @@ class PredictionTab(ctk.CTkFrame):
         # Populate combos programmatically when created
         self.refresh_supervised_columns(silent=True)
         self._update_vector_labels()
+
+
 
     # --------------------------------------------------------
     # Public helper: call this after loading a new CSV
@@ -144,11 +151,12 @@ class PredictionTab(ctk.CTkFrame):
 
         supervised_tab = tabview.add("Supervised")
         clustering_tab = tabview.add("Unsupervised (Clustering)")
+        topic_tab = tabview.add("Topic Modeling (BERTopic)")
 
         self._build_supervised_tab(supervised_tab)
         self._build_clustering_tab(clustering_tab)
-
-    # ============================================================
+        self._build_topic_tab(topic_tab)
+        # ============================================================
     #    SUPERVISED SUBTAB
     # ============================================================
     def _build_supervised_tab(self, parent):
@@ -574,6 +582,13 @@ class PredictionTab(ctk.CTkFrame):
             hover_color="#005dc1",
             command=self.run_clustering,
         ).pack(fill="x", padx=10, pady=(5, 10))
+        ctk.CTkButton(
+            sidebar,
+            text="Elbow method (suggest k)",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.run_elbow_method,
+        ).pack(fill="x", padx=10, pady=(0, 10))
 
         # Right side: summary + plot/animation
         right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
@@ -653,6 +668,118 @@ class PredictionTab(ctk.CTkFrame):
             self._run_static_kmeans(X, labels_for_display, k)
         else:
             self._run_animated_kmeans(X, k)
+    def run_elbow_method(self):
+        """
+        Run K-Means for a range of k values and plot the elbow curve (k vs inertia).
+        Uses the current vectorization settings and suggests a reasonable k by
+        looking for where the relative improvement drops.
+        """
+        if not enlp.is_csv_mode(self.state) or self.state.df is None:
+            messagebox.showwarning(
+                "Warning", "Please load a CSV file first in Document Tools."
+            )
+            return
+
+        # Use last vector settings
+        vector_method = self.state.last_vector_method or "TF-IDF (word)"
+        ngram = self.state.last_vector_ngram or (1, 2)
+        max_feat = self.state.last_vector_max_features or 5000
+
+        # Build X (no labels needed)
+        try:
+            X, _labels_for_display = unsup.build_X_from_state(
+                self.state,
+                vector_method=vector_method,
+                ngram_range=ngram,
+                max_features=max_feat,
+            )
+        except Exception as e:
+            messagebox.showerror("Error building X for elbow method", str(e))
+            return
+
+        n_samples = X.shape[0]
+        if n_samples < 5:
+            messagebox.showwarning(
+                "Warning",
+                "Not enough samples for a meaningful elbow curve (need at least ~5 rows).",
+            )
+            return
+
+        # Choose a reasonable k range: 2 .. min(10, n_samples-1)
+        max_k = int(min(10, max(2, n_samples - 1)))
+        k_values = list(range(2, max_k + 1))
+
+        inertias = []
+        for k in k_values:
+            try:
+                km = KMeans(
+                    n_clusters=k,
+                    random_state=42,
+                    n_init="auto" if hasattr(KMeans, "n_init") else 10,
+                )
+                km.fit(X)
+                inertias.append(float(km.inertia_))
+            except Exception as e:
+                messagebox.showerror("K-Means error", f"Error at k={k}:\n{e}")
+                return
+
+        # Clear old plot and summary, then show elbow info
+        self._clear_cluster_plot()
+        self.cluster_summary_box.delete("1.0", "end")
+        self.cluster_summary_box.insert(
+            "end",
+            "Elbow method (K-Means inertia vs k)\n\n"
+            f"Vectorization: {vector_method}, ngram={ngram}, max_features={max_feat}\n"
+            f"Samples: {n_samples}\n\n"
+        )
+
+        # Plot k vs inertia
+        self.cluster_plot_figure = plt.figure(figsize=(5, 4))
+        ax = self.cluster_plot_figure.add_subplot(111)
+        ax.plot(k_values, inertias, marker="o")
+        ax.set_xlabel("Number of clusters k")
+        ax.set_ylabel("Inertia (within-cluster SSE)")
+        ax.set_title("Elbow curve")
+
+        self.cluster_plot_canvas = FigureCanvasTkAgg(
+            self.cluster_plot_figure, master=self.cluster_plot_container
+        )
+        self.cluster_plot_canvas.draw()
+        self.cluster_plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        # --- Simple heuristic to suggest k (where improvement starts to flatten) ---
+        suggested_k = k_values[-1]  # default to max_k
+        if len(inertias) >= 2:
+            improvements = []
+            for i in range(1, len(inertias)):
+                prev = inertias[i - 1]
+                curr = inertias[i]
+                # relative improvement when going from k_{i-1} -> k_i
+                rel = (prev - curr) / max(prev, 1e-9)
+                improvements.append(rel)
+
+            # Find first k where improvement drops below a small threshold (e.g. 10%)
+            threshold = 0.10
+            for idx, rel_imp in enumerate(improvements):
+                if rel_imp < threshold:
+                    suggested_k = k_values[idx]  # k at previous step
+                    break
+
+        self.cluster_summary_box.insert(
+            "end",
+            "Inertia values:\n" +
+            "".join(f"  k={k}: {inertias[i]:.2f}\n" for i, k in enumerate(k_values))
+        )
+        self.cluster_summary_box.insert(
+            "end",
+            f"\nSuggested k (approx. elbow): {suggested_k}\n"
+            "You can adjust this suggestion by eye from the curve above, then "
+            "update the 'Number of clusters (k)' field and click 'Run clustering'.\n",
+        )
+
+        # Pre-fill k entry with suggested value
+        self.cluster_k_entry.delete(0, "end")
+        self.cluster_k_entry.insert(0, str(suggested_k))
 
     # ---------- Static K-Means using sklearn + PCA plot ---------- #
     def _run_static_kmeans(self, X: np.ndarray, labels_for_display, k: int):
@@ -847,3 +974,200 @@ class PredictionTab(ctk.CTkFrame):
             else:
                 color = self.cluster_colors[c_idx % len(self.cluster_colors)]
             self.cluster_canvas.itemconfig(pid, fill=color)
+
+    #    TOPIC MODELING (BERTopic) SUBTAB
+    # ============================================================
+    #    TOPIC MODELING (BERTopic) SUBTAB
+    # ============================================================
+
+    def _build_topic_tab(self, parent):
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(1, weight=1)
+
+        # Sidebar
+        sidebar = ctk.CTkFrame(parent, fg_color="#121212", corner_radius=10)
+        sidebar.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
+
+        ctk.CTkLabel(
+            sidebar,
+            text="Topic Modeling (BERTopic)",
+            text_color="#6ea8fe",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(pady=(10, 5))
+
+        ctk.CTkLabel(
+            sidebar,
+            text=(
+                "Uses BERTopic on the current CSV text column.\n\n"
+                "Steps:\n"
+                "1) Load CSV in Document Tools\n"
+                "2) Choose text column there\n"
+                "3) Click 'Run BERTopic' below."
+            ),
+            text_color="#bbbbbb",
+            font=ctk.CTkFont(size=11),
+            justify="left",
+        ).pack(padx=10, pady=(0, 10))
+
+        ctk.CTkButton(
+            sidebar,
+            text="Run BERTopic",
+            fg_color="#0078ff",
+            hover_color="#005dc1",
+            command=self.run_bertopic,
+        ).pack(fill="x", padx=10, pady=(5, 10))
+
+        # Right side: Summary + Plot
+        right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
+        right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
+        right.rowconfigure(1, weight=1)
+        right.columnconfigure(0, weight=1)
+
+        # TOPIC SUMMARY BOX
+        self.topic_summary_box = ctk.CTkTextbox(
+            right,
+            fg_color="#1a1a1a",
+            text_color="white",
+            font=("Consolas", 11),
+            wrap="word",
+            height=160,
+        )
+        self.topic_summary_box.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        # Bind click
+        self.topic_summary_box.bind("<Double-1>", self._show_topic_examples)
+
+        # Plot area
+        self.topic_plot_container = ctk.CTkFrame(right, fg_color="#1a1a1a")
+        self.topic_plot_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 10))
+
+        self.topic_plot_canvas = None
+        self.topic_plot_figure = None
+
+    def _clear_topic_plot(self):
+        if self.topic_plot_canvas is not None:
+            self.topic_plot_canvas.get_tk_widget().destroy()
+            self.topic_plot_canvas = None
+        if self.topic_plot_figure is not None:
+            plt.close(self.topic_plot_figure)
+            self.topic_plot_figure = None
+
+    def run_bertopic(self):
+        if not enlp.is_csv_mode(self.state) or self.state.df is None:
+            messagebox.showwarning("Warning", "Please load a CSV first in Document Tools.")
+            return
+
+        text_col = self.state.csv_text_column
+        docs = self.state.df[text_col].dropna().astype(str).tolist()
+
+        if len(docs) < 5:
+            messagebox.showwarning("Warning", "Need at least 5 rows.")
+            return
+
+        # Run BERTopic with stop-word removal
+        try:
+            vectorizer_model = CountVectorizer(stop_words="english")
+            self.topic_model = BERTopic(vectorizer_model=vectorizer_model, verbose=False)
+            topics, probs = self.topic_model.fit_transform(docs)
+        except Exception as e:
+            messagebox.showerror("BERTopic error", str(e))
+            return
+
+        # Save data for later
+        self.docs = docs
+        self.topic_info = self.topic_model.get_topic_info()
+        self.doc_info = self.topic_model.get_document_info(docs)
+
+        # TOPIC SUMMARY
+        self.topic_summary_box.delete("1.0", "end")
+        self.topic_summary_box.insert("end", "Top Topics (double-click to inspect):\n\n")
+
+        top_info = self.topic_info[self.topic_info["Topic"] != -1]
+
+        for _, row in top_info.iterrows():
+            tid = row["Topic"]
+            words = self.topic_model.get_topic(tid) or []
+            top_words = ", ".join(w for w, _ in words[:5])
+            self.topic_summary_box.insert("end", f"[Topic {tid}] ({row['Count']} docs): {top_words}\n")
+
+        # Plot topic sizes
+        self._clear_topic_plot()
+        self.topic_plot_figure = plt.figure(figsize=(6, 4))
+        ax = self.topic_plot_figure.add_subplot(111)
+
+        ax.bar(top_info["Topic"].astype(str), top_info["Count"])
+        ax.set_xlabel("Topic ID")
+        ax.set_ylabel("Document count")
+        ax.set_title("BERTopic: Topic Sizes")
+
+        self.topic_plot_canvas = FigureCanvasTkAgg(self.topic_plot_figure, master=self.topic_plot_container)
+        self.topic_plot_canvas.draw()
+        self.topic_plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    # -----------------------------------------------------------
+    # NEW: Clicking a topic shows example documents
+    # -----------------------------------------------------------
+    def _show_topic_examples(self, event):
+        """Triggered when user double-clicks the topic summary box."""
+        try:
+            index = self.topic_summary_box.index("@%s,%s" % (event.x, event.y))
+            line = self.topic_summary_box.get(index + " linestart", index + " lineend")
+        except:
+            return
+
+        if "Topic" not in line:
+            return
+
+        # Extract topic id
+        try:
+            tid = int(line.split("]")[0].split(" ")[1])
+        except:
+            return
+
+        # Get top docs
+        rows = self.doc_info[self.doc_info["Topic"] == tid].head(5)
+
+        # Popup window
+        win = ctk.CTkToplevel(self)
+        win.title(f"Topic {tid} – Example Documents")
+        win.geometry("650x500")
+
+        txt = ctk.CTkTextbox(win, fg_color="#101010", text_color="white", wrap="word")
+        txt.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Add terms
+        txt.insert("end", f"Top words for Topic {tid}:\n")
+        for w, _ in self.topic_model.get_topic(tid)[:10]:
+            txt.insert("end", f"- {w}\n")
+
+        txt.insert("end", "\nExample documents:\n\n")
+        for _, row in rows.iterrows():
+            txt.insert("end", f"• {row['Document'][:300]}...\n\n")
+
+        # OPTIONAL: show term bar chart
+        self._plot_topic_terms(tid)
+
+    # -----------------------------------------------------------
+    # NEW: Show bar chart for topic terms
+    # -----------------------------------------------------------
+    def _plot_topic_terms(self, topic_id):
+        """Plot top 10 terms for a topic."""
+        words = self.topic_model.get_topic(topic_id)
+        if not words:
+            return
+
+        terms = [w for w, _ in words[:10]]
+        scores = [s for _, s in words[:10]]
+
+        self._clear_topic_plot()
+
+        self.topic_plot_figure = plt.figure(figsize=(6, 4))
+        ax = self.topic_plot_figure.add_subplot(111)
+
+        ax.barh(terms, scores)
+        ax.set_title(f"Top Terms for Topic {topic_id}")
+        ax.invert_yaxis()
+
+        self.topic_plot_canvas = FigureCanvasTkAgg(self.topic_plot_figure, master=self.topic_plot_container)
+        self.topic_plot_canvas.draw()
+        self.topic_plot_canvas.get_tk_widget().pack(fill="both", expand=True)

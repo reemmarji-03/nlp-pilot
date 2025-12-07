@@ -1,16 +1,31 @@
 import os
 import re
 from collections import Counter
+from typing import Iterable
 
 import docx
 import pdfplumber
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+from nltk.stem import PorterStemmer, WordNetLemmatizer
 import textstat
 import matplotlib.pyplot as plt
+import nltk
 
+try:
+    nltk.data.find("corpora/wordnet")
+except LookupError:
+    nltk.download("wordnet")
 
+_STEMMER = PorterStemmer()
+_LEMMATIZER = WordNetLemmatizer()
+def _simple_tokenize(text: str) -> Iterable[str]:
+    # Keep it simple; you might already have a better tokenizer.
+    return text.split()
+
+def _simple_detokenize(tokens: Iterable[str]) -> str:
+    return " ".join(tokens)
 # NLTK setup
 def ensure_nltk():
     """
@@ -229,10 +244,33 @@ def apply_pipeline(text: str, cfg, stopword_set=None) -> str:
             min_len = step.get("min_len", 3)
             out = remove_short_tokens(out, min_len, stopword_set)
 
-        # TODO: lemmatization, stemming, emoji_to_text, profanity
-        # elif sid == "lemmatize": ...
-        # elif sid == "stem": ...
-        # etc.
+        elif sid == "stem":
+            toks = _simple_tokenize(out)
+            toks = [_STEMMER.stem(t) for t in toks]
+            out = _simple_detokenize(toks)
+
+            # NEW: lemmatization
+        elif sid == "lemma":
+            toks = _simple_tokenize(out)
+            toks = [_LEMMATIZER.lemmatize(t) for t in toks]
+            out = _simple_detokenize(toks)
+
+            # you can add more custom steps here later: emoji_to_text, profanity, etc.
+
+            # OPTIONAL REGEX STEP – this is *not* a pipeline step name, just extra config
+    print("PIPELINE CFG:", cfg)
+    print("REGEX CFG:", cfg.get("regex"))
+
+    regex_cfg = cfg.get("regex")
+    if regex_cfg:
+        pattern = regex_cfg.get("pattern") or ""
+        replacement = regex_cfg.get("replacement") or ""
+        if pattern.strip():
+            try:
+                out = re.sub(pattern, replacement, out)
+            except re.error:
+                # invalid regex – you might want to log or ignore
+                pass
 
     return out
 

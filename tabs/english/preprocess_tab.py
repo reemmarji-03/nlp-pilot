@@ -18,6 +18,8 @@ class PreprocessTab(ctk.CTkFrame):
     def __init__(self, parent, state: EnglishState):
         super().__init__(parent, fg_color="#0f0f0f")
         self.state = state
+        self.regex_pattern_entry = None
+        self.regex_replace_entry = None
 
         # widgets
         self.available_list = None
@@ -36,7 +38,9 @@ class PreprocessTab(ctk.CTkFrame):
             {"id": "numbers", "label": "Normalize numbers (123 → <NUM>)"},
             {"id": "stopwords", "label": "Remove stopwords"},
             {"id": "short_tokens", "label": "Remove short tokens"},
-            # to add later: lemmatize, stem, emoji_to_text, profanity
+            {"id": "stem", "label": "Stemming (PorterStemmer)"},
+            {"id": "lemma", "label": "Lemmatization (WordNet)"},
+            # later: {"id": "emoji_text", "label": "Convert emoji to text"}, ...
         ]
 
         self.build_ui()
@@ -193,6 +197,44 @@ class PreprocessTab(ctk.CTkFrame):
             placeholder_text="3"
         )
         self.short_min_len_entry.pack(anchor="w", pady=(2, 5))
+        # --- NEW: Regex replace (GUI-only, not part of LangGraph steps) ---
+        regex_frame = ctk.CTkFrame(right, fg_color="#1a1a1a")
+        regex_frame.pack(fill="x", padx=10, pady=(0, 5))
+
+        ctk.CTkLabel(
+            regex_frame,
+            text="regex Pattern",
+            text_color="#cccccc",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", pady=(0, 2))
+
+        ctk.CTkLabel(
+            regex_frame,
+            text="Pattern (Python regex):",
+            text_color="#aaaaaa",
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="w")
+
+        self.regex_pattern_entry = ctk.CTkEntry(
+            regex_frame,
+            width=260,
+            placeholder_text=r"\d+"  # example
+        )
+        self.regex_pattern_entry.pack(anchor="w", pady=(0, 4))
+
+        ctk.CTkLabel(
+            regex_frame,
+            text="Replacement string",
+            text_color="#aaaaaa",
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="w")
+
+        self.regex_replace_entry = ctk.CTkEntry(
+            regex_frame,
+            width=260,
+            placeholder_text=""  # default = remove matches
+        )
+        self.regex_replace_entry.pack(anchor="w", pady=(0, 4))
 
         # preview box
         self.preview_box = ctk.CTkTextbox(
@@ -278,7 +320,23 @@ class PreprocessTab(ctk.CTkFrame):
         if short_step and "min_len" in short_step:
             self.short_min_len_entry.delete(0, END)
             self.short_min_len_entry.insert(0, str(short_step["min_len"]))
+        else:
+            # default
+            self.short_min_len_entry.delete(0, END)
+            self.short_min_len_entry.insert(0, "3")
 
+        # NEW: load regex pattern/replacement if present
+        regex_cfg = self.state.pipeline_config.get("regex", {})
+        pattern = regex_cfg.get("pattern", "")
+        repl = regex_cfg.get("replacement", "")
+
+        if self.regex_pattern_entry is not None:
+            self.regex_pattern_entry.delete(0, END)
+            self.regex_pattern_entry.insert(0, pattern)
+
+        if self.regex_replace_entry is not None:
+            self.regex_replace_entry.delete(0, END)
+            self.regex_replace_entry.insert(0, repl)
 
     # GUI → State
     def save_to_state(self):
@@ -301,8 +359,27 @@ class PreprocessTab(ctk.CTkFrame):
 
             steps.append(step)
 
+        # Make sure pipeline_config exists
+        if not hasattr(self.state, "pipeline_config") or self.state.pipeline_config is None:
+            self.state.pipeline_config = {}
+
         self.state.pipeline_config["steps"] = steps
 
+        # NEW: save regex config
+        if self.regex_pattern_entry is not None:
+            pattern = self.regex_pattern_entry.get().strip()
+        else:
+            pattern = ""
+
+        if self.regex_replace_entry is not None:
+            replacement = self.regex_replace_entry.get().strip()
+        else:
+            replacement = ""
+
+        self.state.pipeline_config["regex"] = {
+            "pattern": pattern,
+            "replacement": replacement,
+        }
 
     # Button actions
 

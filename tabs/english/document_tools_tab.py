@@ -168,7 +168,7 @@ class DocumentToolsTab(ctk.CTkFrame):
 
         self.file_label.configure(text=f"📂  {self.state.file_name}")
         self.output.delete("1.0", "end")
-        self.output.insert("end", "File loaded successfully.\n", "left")
+        self.output.insert("end", f"File loaded successfully.\n Total Number of characters: {len(text)}", "left")
 
     def _handle_csv_file(self, path: str):
         try:
@@ -205,7 +205,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         self.output.delete("1.0", "end")
         self.output.insert(
             "end",
-            f"CSV loaded successfully.\nUsing column '{col}' as text column.\n",
+            f"CSV loaded successfully.\nUsing column '{col}' as text column.\n Dataframe shape: {df.shape}",
             "left"
         )
 

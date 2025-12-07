@@ -1,4 +1,4 @@
 title = "NLP Pilot"
-ollama_model_name = "llama3:8b"
+ollama_model_name = "qwen3:4b"
 
 

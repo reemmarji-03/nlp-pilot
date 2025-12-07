@@ -25,11 +25,7 @@ class NLPApp(ctk.CTk):
         self.english_tab = EnglishTab(self.notebook)
         self.notebook.add(self.english_tab, text="English NLP")
 
-        self.arabic_tab = ctk.CTkFrame(self.notebook, fg_color="#0f0f0f")
-        self.notebook.add(self.arabic_tab, text="Arabic NLP")
 
-        self.youtube_tab = ctk.CTkFrame(self.notebook, fg_color="#0f0f0f")
-        self.notebook.add(self.youtube_tab, text="YouTube Analysis")
 
 if __name__ == "__main__":
     print("✅ NLPApp started successfully")

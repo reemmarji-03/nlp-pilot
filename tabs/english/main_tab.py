@@ -1,6 +1,7 @@
 import customtkinter as ctk
 
 from core.english_state import EnglishState
+from .agent_tab import AgentTab
 from .document_tools_tab import DocumentToolsTab
 from .preprocess_tab import PreprocessTab
 from .vector_tab import VectorTab
@@ -26,6 +27,7 @@ class EnglishTab(ctk.CTkFrame):
         vect_frame = self.section_tabs.add("Vectorization")
         prediction_frame = self.section_tabs.add("Prediction")
         rag_frame = self.section_tabs.add("RAG")
+        agent_frame = self.section_tabs.add("Agent")
 
         # instantiate subtabs (each is its own Frame)
         self.doc_tab = DocumentToolsTab(doc_frame, self.state, on_state_changed=self.on_state_changed)
@@ -33,6 +35,7 @@ class EnglishTab(ctk.CTkFrame):
         self.vect_tab = VectorTab(vect_frame, self.state)
         self.prediction_tab = PredictionTab(prediction_frame, self.state)
         self.rag_tab = RAGTab(rag_frame, self.state)
+        self.agent_tab = AgentTab(agent_frame, self.state)
 
     def on_state_changed(self):
         # whenever *any* tab updates state in a way Prediction cares about
