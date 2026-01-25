@@ -16,7 +16,7 @@ from core import unsupervised as unsup
 from core import vectorization as vec
 
 
-# ---------- K-Means helper functions for animated mode ---------- #
+# K-Means helper functions for animated mode
 
 def euclid_dist(p, q):
     return float(np.sqrt((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2))
@@ -55,7 +55,7 @@ def centroids_converged(old, new, tol=1e-4):
     return True
 
 
-# ========================= PREDICTION TAB ========================= #
+# PREDICTION TAB
 
 class PredictionTab(ctk.CTkFrame):
     """

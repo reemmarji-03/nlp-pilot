@@ -1,5 +1,3 @@
-# core/agent_graph.py
-
 from typing import TypedDict, Literal, Optional, Dict, Any, List
 from dataclasses import dataclass
 
@@ -18,7 +16,10 @@ from core.agent_schemas import (
 )
 from core import prompts as agent_prompts
 
-
+import os
+from dotenv import load_dotenv
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # ===================== Agent State ===================== #
 
 class PipelinePhase(TypedDict, total=False):
@@ -107,7 +108,7 @@ def _is_explanation_request(state: AgentState) -> bool:
 base_llm = ChatOpenAI(
     model="gpt-4o-mini",     # or whatever you use
     temperature=0.2,
-    api_key="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",
+    api_key=OPENAI_API_KEY,
 )
 
 # Structured LLMs for decisions

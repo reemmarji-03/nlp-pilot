@@ -19,5 +19,4 @@ langchain-ollama>=1.0.0
 langchain-huggingface
 faiss-cpu
 sentence-transformers
-
 langgraph
