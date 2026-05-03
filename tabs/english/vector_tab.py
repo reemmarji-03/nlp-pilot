@@ -7,6 +7,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from core.english_state import EnglishState
 from core import english_nlp as enlp
 from core import vectorization as vec
+from core.task_runner import TaskRunner
+from tabs.progress_overlay import ProgressOverlay
 
 
 class VectorTab(ctk.CTkFrame):
@@ -36,6 +38,11 @@ class VectorTab(ctk.CTkFrame):
         self.sent1_box = None
         self.sent2_box = None
         self.similarity_label = None
+
+        self.vec_runner = TaskRunner(root=self)
+        self.vec_progress = None
+        self._vec_btn = None
+        self._pca_btn = None
 
         self.build_ui()
         self.pack(fill="both", expand=True)
@@ -113,21 +120,25 @@ class VectorTab(ctk.CTkFrame):
         self.max_features_entry.pack(anchor="w", padx=10, pady=(2, 10))
 
         # --- Buttons ---
-        ctk.CTkButton(
+        self._vec_btn = ctk.CTkButton(
             sidebar,
             text="Vectorize current document",
             fg_color="#0078ff",
             hover_color="#005dc1",
             command=self.vectorize_document
-        ).pack(fill="x", padx=10, pady=(10, 5))
+        )
+        self._vec_btn.pack(fill="x", padx=10, pady=(10, 5))
 
-        ctk.CTkButton(
+        self._pca_btn = ctk.CTkButton(
             sidebar,
             text="PCA 2D projection",
             fg_color="#444444",
             hover_color="#333333",
             command=self.plot_sentence_projection
-        ).pack(fill="x", padx=10, pady=(0, 15))
+        )
+        self._pca_btn.pack(fill="x", padx=10, pady=(0, 15))
+
+        self.vec_progress = ProgressOverlay(sidebar, task_runner=self.vec_runner)
 
         # --- Similarity sandbox ---
         ctk.CTkLabel(
@@ -206,7 +217,7 @@ class VectorTab(ctk.CTkFrame):
         )
         self.features_container.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # we’ll put up to 3 cards in columns 0,1,2
+        # we'll put up to 3 cards in columns 0,1,2
         for col in range(3):
             self.features_container.grid_columnconfigure(col, weight=1)
 
@@ -307,54 +318,60 @@ class VectorTab(ctk.CTkFrame):
         method = self.method_combo.get()
         ngram_range = self._parse_ngrams()
         max_features = self._parse_max_features()
-
-        # Build list of documents depending on mode (CSV rows vs single text)
         docs = self._build_docs_for_vectorization()
         if not docs:
-            messagebox.showwarning(
-                "Warning",
-                "No non-empty text found to vectorize (after preprocessing)."
-            )
+            messagebox.showwarning("Warning", "No non-empty text found to vectorize.")
             return
 
-        # For big CSVs + transformer, avoid insane runtimes — cap to 256 rows.
         truncated = False
         if enlp.is_csv_mode(self.state) and method == "Transformer embeddings":
             if len(docs) > 256:
                 docs = docs[:256]
                 truncated = True
 
-        # --- Run vectorization ---
-        try:
-            if method == "Bag-of-Words":
-                res, _ = vec.vectorize_bow(
-                    docs,
-                    ngram_range=ngram_range,
-                    max_features=max_features
-                )
-            elif method == "TF-IDF (word)":
-                res, _ = vec.vectorize_tfidf(
-                    docs,
-                    ngram_range=ngram_range,
-                    max_features=max_features,
-                    analyzer="word"
-                )
-            elif method == "TF-IDF (char)":
-                res, _ = vec.vectorize_tfidf(
-                    docs,
-                    ngram_range=ngram_range,
-                    max_features=max_features,
-                    analyzer="char"
-                )
-            elif method == "Transformer embeddings":
-                res = vec.transformer_sentence_embeddings(docs)
-            else:
-                messagebox.showerror("Error", f"Unknown method: {method}")
-                return
-        except Exception as e:
-            messagebox.showerror("Vectorization error", str(e))
-            return
+        self._vec_btn.configure(state="disabled")
+        self._pca_btn.configure(state="disabled")
+        self.vec_progress.show(f"Vectorizing with {method}…")
 
+        captured_docs = docs
+        captured_truncated = truncated
+
+        def _work():
+            if method == "Bag-of-Words":
+                res, _ = vec.vectorize_bow(captured_docs, ngram_range=ngram_range, max_features=max_features)
+            elif method == "TF-IDF (word)":
+                res, _ = vec.vectorize_tfidf(captured_docs, ngram_range=ngram_range, max_features=max_features, analyzer="word")
+            elif method == "TF-IDF (char)":
+                res, _ = vec.vectorize_tfidf(captured_docs, ngram_range=ngram_range, max_features=max_features, analyzer="char")
+            elif method == "Transformer embeddings":
+                res = vec.transformer_sentence_embeddings(captured_docs)
+            else:
+                raise ValueError(f"Unknown method: {method}")
+            return res
+
+        def _on_done(res):
+            self.vec_progress.hide()
+            self._vec_btn.configure(state="normal")
+            self._pca_btn.configure(state="normal")
+            self.state.last_vector_method = method
+            self.state.last_vector_ngram = ngram_range
+            self.state.last_vector_max_features = max_features
+            self._display_vectorization_results(res, method, captured_truncated, captured_docs)
+
+        def _on_error(exc):
+            self.vec_progress.hide()
+            self._vec_btn.configure(state="normal")
+            self._pca_btn.configure(state="normal")
+            messagebox.showerror("Vectorization error", str(exc))
+
+        def _on_cancel():
+            self.vec_progress.hide()
+            self._vec_btn.configure(state="normal")
+            self._pca_btn.configure(state="normal")
+
+        self.vec_runner.run(_work, on_done=_on_done, on_error=_on_error, on_cancel=_on_cancel)
+
+    def _display_vectorization_results(self, res, method, truncated: bool, docs: list) -> None:
         n_samples = res.vector.shape[0]
 
         # --- Summary ---
@@ -593,10 +610,6 @@ class VectorTab(ctk.CTkFrame):
         ngram_range = self._parse_ngrams()
         max_features = self._parse_max_features()
 
-        self.state.last_vector_method = method
-        self.state.last_vector_ngram = ngram_range
-        self.state.last_vector_max_features = max_features
-
         # ---- Build docs + labels depending on mode ----
         if enlp.is_csv_mode(self.state):
             raw_docs = enlp.get_raw_documents_from_state(self.state)
@@ -630,17 +643,24 @@ class VectorTab(ctk.CTkFrame):
             )
             return
 
-        try:
+        self._vec_btn.configure(state="disabled")
+        self._pca_btn.configure(state="disabled")
+        self.vec_progress.show("Computing PCA projection…")
+
+        captured_docs = docs
+        captured_labels = labels
+
+        def _work():
             if method == "Bag-of-Words":
                 res, _ = vec.vectorize_bow(
-                    docs,
+                    captured_docs,
                     ngram_range=ngram_range,
                     max_features=max_features
                 )
                 X = res.vector.toarray()
             elif method == "TF-IDF (word)":
                 res, _ = vec.vectorize_tfidf(
-                    docs,
+                    captured_docs,
                     ngram_range=ngram_range,
                     max_features=max_features,
                     analyzer="word"
@@ -648,48 +668,64 @@ class VectorTab(ctk.CTkFrame):
                 X = res.vector.toarray()
             elif method == "TF-IDF (char)":
                 res, _ = vec.vectorize_tfidf(
-                    docs,
+                    captured_docs,
                     ngram_range=ngram_range,
                     max_features=max_features,
                     analyzer="char"
                 )
                 X = res.vector.toarray()
             elif method == "Transformer embeddings":
-                res = vec.transformer_sentence_embeddings(docs)
+                res = vec.transformer_sentence_embeddings(captured_docs)
                 X = res.vector
             else:
-                messagebox.showerror("Error", f"Unknown method: {method}")
-                return
-        except Exception as e:
-            messagebox.showerror("Vectorization error", str(e))
-            return
+                raise ValueError(f"Unknown method: {method}")
 
-        coords = vec.pca_2d(X)
+            coords = vec.pca_2d(X)
+            return coords
 
-        # Plot
-        self._clear_plot()
-        self.plot_figure = plt.figure(figsize=(5, 4))
-        ax = self.plot_figure.add_subplot(111)
-        ax.scatter(coords[:, 0], coords[:, 1])
+        def _on_done(coords):
+            self.vec_progress.hide()
+            self._vec_btn.configure(state="normal")
+            self._pca_btn.configure(state="normal")
+            self.state.last_vector_method = method
+            self.state.last_vector_ngram = ngram_range
+            self.state.last_vector_max_features = max_features
 
-        title = "Sentence embeddings (PCA 2D)"
-        if enlp.is_csv_mode(self.state):
-            title = f"CSV row embeddings (PCA 2D) – '{self.state.csv_text_column}'"
-        ax.set_title(title)
-        ax.set_xlabel("PC1")
-        ax.set_ylabel("PC2")
+            # Plot
+            self._clear_plot()
+            self.plot_figure = plt.figure(figsize=(5, 4))
+            ax = self.plot_figure.add_subplot(111)
+            ax.scatter(coords[:, 0], coords[:, 1])
 
-        # label at most first 40 points to avoid clutter
-        for i, label in enumerate(labels[:40]):
-            ax.text(coords[i, 0], coords[i, 1], label, fontsize=7)
+            title = "Sentence embeddings (PCA 2D)"
+            if enlp.is_csv_mode(self.state):
+                title = f"CSV row embeddings (PCA 2D) – '{self.state.csv_text_column}'"
+            ax.set_title(title)
+            ax.set_xlabel("PC1")
+            ax.set_ylabel("PC2")
 
-        self.plot_canvas = FigureCanvasTkAgg(self.plot_figure, master=self.plot_container)
-        self.plot_canvas.draw()
-        self.plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+            # label at most first 40 points to avoid clutter
+            for i, label in enumerate(captured_labels[:40]):
+                ax.text(coords[i, 0], coords[i, 1], label, fontsize=7)
 
+            self.plot_canvas = FigureCanvasTkAgg(self.plot_figure, master=self.plot_container)
+            self.plot_canvas.draw()
+            self.plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        def _on_error(exc):
+            self.vec_progress.hide()
+            self._vec_btn.configure(state="normal")
+            self._pca_btn.configure(state="normal")
+            messagebox.showerror("PCA error", str(exc))
+
+        def _on_cancel():
+            self.vec_progress.hide()
+            self._vec_btn.configure(state="normal")
+            self._pca_btn.configure(state="normal")
+
+        self.vec_runner.run(_work, on_done=_on_done, on_error=_on_error, on_cancel=_on_cancel)
 
     def _clear_features(self):
         """Remove all existing feature cards."""
         for child in self.features_container.winfo_children():
             child.destroy()
-
