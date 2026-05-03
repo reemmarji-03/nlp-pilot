@@ -17,7 +17,7 @@ class TaskRunner:
         self,
         fn: Callable,
         args: Tuple = (),
-        kwargs: Dict = {},
+        kwargs: Optional[Dict] = None,
         on_progress: Optional[Callable] = None,
         on_done: Optional[Callable] = None,
         on_error: Optional[Callable] = None,
@@ -25,6 +25,8 @@ class TaskRunner:
     ) -> None:
         if self.is_running:
             raise RuntimeError("A task is already running.")
+
+        kwargs = kwargs or {}
 
         self._cancel_event = threading.Event()
         cancel_event = self._cancel_event
@@ -43,8 +45,9 @@ class TaskRunner:
                     extra["progress_callback"] = _progress_cb
 
                 result = fn(*args, **{**kwargs, **extra})
+                was_cancelled = cancel_event.is_set()
 
-                if cancel_event.is_set():
+                if was_cancelled:
                     if on_cancel:
                         self._root.after(0, on_cancel)
                 else:
