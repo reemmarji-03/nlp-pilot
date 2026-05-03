@@ -2,7 +2,6 @@ from typing import TypedDict, Literal, Optional, Dict, Any, List
 from dataclasses import dataclass
 
 from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI
 from langchain.messages import HumanMessage
 
 from core.english_state import EnglishState
@@ -15,11 +14,22 @@ from core.agent_schemas import (
     ModelConfigDecision,
 )
 from core import prompts as agent_prompts
+from core.settings_manager import settings
 
-import os
-from dotenv import load_dotenv
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+_NO_LLM_MSG = (
+    "No LLM provider configured — open Settings (⚙) to set one up."
+)
+
+
+def _get_llm():
+    return settings.get_llm()
+
+
+def _get_structured_llm(schema):
+    llm = _get_llm()
+    if llm is None:
+        return None
+    return llm.with_structured_output(schema)
 # ===================== Agent State ===================== #
 
 class PipelinePhase(TypedDict, total=False):
@@ -102,22 +112,6 @@ def _is_explanation_request(state: AgentState) -> bool:
 
     return any(kw in msg for kw in _EXPLANATION_KEYWORDS)
 
-# ===================== LLM helpers ===================== #
-
-# IMPORTANT: in real code, do NOT hard-code the key. Use environment variables.
-base_llm = ChatOpenAI(
-    model="gpt-4o-mini",     # or whatever you use
-    temperature=0.2,
-    api_key=OPENAI_API_KEY,
-)
-
-# Structured LLMs for decisions
-task_selection_llm = base_llm.with_structured_output(TaskSelectionDecision)
-preprocess_config_llm = base_llm.with_structured_output(PreprocessConfigDecision)
-vector_config_llm = base_llm.with_structured_output(VectorConfigDecision)
-model_config_llm = base_llm.with_structured_output(ModelConfigDecision)
-
-
 # ===================== Nodes ===================== #
 
 def router_node(state: AgentState) -> AgentState:
@@ -192,7 +186,11 @@ def explanation_node(state: AgentState) -> AgentState:
         "Do not ask the user questions back; just explain.\n"
     )
 
-    resp = base_llm.invoke([HumanMessage(content=prompt)])
+    llm = _get_llm()
+    if llm is None:
+        state["assistant_message"] = _NO_LLM_MSG
+        return state
+    resp = llm.invoke([HumanMessage(content=prompt)])
     state["assistant_message"] = resp.content
 
     # IMPORTANT: do NOT change state['phase']['stage'] here.
@@ -210,7 +208,11 @@ def task_selection_node(state: AgentState) -> AgentState:
     state = _ensure_defaults(state)
     user_msg = state.get("user_message", "")
 
-    decision: TaskSelectionDecision = task_selection_llm.invoke(
+    llm = _get_structured_llm(TaskSelectionDecision)
+    if llm is None:
+        state["assistant_message"] = _NO_LLM_MSG
+        return state
+    decision: TaskSelectionDecision = llm.invoke(
         [HumanMessage(content=agent_prompts.build_task_selection_prompt(user_msg))]
     )
 
@@ -259,7 +261,11 @@ def preprocess_config_node(state: AgentState) -> AgentState:
     if existing_cfg and "steps" in existing_cfg:
         previous_steps = existing_cfg["steps"]
 
-    decision: PreprocessConfigDecision = preprocess_config_llm.invoke(
+    llm = _get_structured_llm(PreprocessConfigDecision)
+    if llm is None:
+        state["assistant_message"] = _NO_LLM_MSG
+        return state
+    decision: PreprocessConfigDecision = llm.invoke(
         [
             HumanMessage(
                 content=agent_prompts.build_preprocess_config_prompt(
@@ -381,7 +387,11 @@ def vector_config_node(state: AgentState) -> AgentState:
     # Existing vector config, if any
     existing_vec_cfg = decisions.get("vector_config")
 
-    decision: VectorConfigDecision = vector_config_llm.invoke(
+    llm = _get_structured_llm(VectorConfigDecision)
+    if llm is None:
+        state["assistant_message"] = _NO_LLM_MSG
+        return state
+    decision: VectorConfigDecision = llm.invoke(
         [
             HumanMessage(
                 content=agent_prompts.build_vector_config_prompt(
@@ -465,7 +475,11 @@ def model_config_node(state: AgentState) -> AgentState:
         if eng.csv_text_column in candidate_cols:
             candidate_cols.remove(eng.csv_text_column)
 
-    decision: ModelConfigDecision = model_config_llm.invoke(
+    llm = _get_structured_llm(ModelConfigDecision)
+    if llm is None:
+        state["assistant_message"] = _NO_LLM_MSG
+        return state
+    decision: ModelConfigDecision = llm.invoke(
         [
             HumanMessage(
                 content=agent_prompts.build_model_config_prompt(
@@ -699,8 +713,12 @@ def render_message_node(state: AgentState) -> AgentState:
 
     # Intents that need a fresh LLM rendering based on JSON payload
     elif intent in {"preprocess_preview", "vector_config_confirmed", "results_summary", "training_failed"}:
+        llm = _get_llm()
+        if llm is None:
+            state["assistant_message"] = _NO_LLM_MSG
+            return state
         prompt = agent_prompts.build_renderer_prompt(intent, payload)
-        resp = base_llm.invoke([HumanMessage(content=prompt)])
+        resp = llm.invoke([HumanMessage(content=prompt)])
         msg = resp.content
 
     elif intent == "model_config_needs_clarification":
@@ -722,8 +740,12 @@ def render_message_node(state: AgentState) -> AgentState:
 
     else:
         # Generic fallback
+        llm = _get_llm()
+        if llm is None:
+            state["assistant_message"] = _NO_LLM_MSG
+            return state
         prompt = agent_prompts.build_renderer_prompt(intent or "generic", payload)
-        resp = base_llm.invoke([HumanMessage(content=prompt)])
+        resp = llm.invoke([HumanMessage(content=prompt)])
         msg = resp.content
 
     state["assistant_message"] = msg
