@@ -91,6 +91,12 @@ class PredictionTab(ctk.CTkFrame):
         self._clust_elbow_btn = None
         self._topic_run_btn = None
 
+        # BERTopic instance attributes
+        self.topic_model = None
+        self.topic_info = None
+        self.doc_info = None
+        self.docs = None
+
         # supervised-related
         self.supervised_label_combo = None
         self.supervised_model_combo = None
@@ -526,6 +532,8 @@ class PredictionTab(ctk.CTkFrame):
             self._plot_confusion_matrix(result.cm)
         else:
             for k, v in result.metrics.items():
+                if k == "candidate_scores":
+                    continue
                 self.supervised_metrics_box.insert("end", f"{k}: {v:.4f}\n")
 
             self._clear_supervised_plot()

@@ -1,5 +1,6 @@
 import copy
 import json
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -40,7 +41,6 @@ class SettingsManager:
                 for key in ("ollama", "openai", "anthropic"):
                     self.data[key] = {**DEFAULTS[key], **loaded.get(key, {})}
             except Exception as exc:
-                import sys
                 print(f"[SettingsManager] Config load failed: {exc}", file=sys.stderr)
                 self.data = copy.deepcopy(DEFAULTS)
                 self.save()

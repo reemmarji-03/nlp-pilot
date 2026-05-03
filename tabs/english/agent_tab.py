@@ -205,6 +205,8 @@ class AgentTab(ctk.CTkFrame):
         Reset the agent's conversation state, but keep the loaded EnglishState.
         Optionally also clear some configs in EnglishState.
         """
+        if self.runner.is_running:
+            return
         # Reset conversation-level state
         self.current_phase = {"stage": "task_selection"}
         self.current_task_type = None
