@@ -39,7 +39,9 @@ class SettingsManager:
                 self.data.update({k: v for k, v in loaded.items() if k not in ("ollama", "openai", "anthropic")})
                 for key in ("ollama", "openai", "anthropic"):
                     self.data[key] = {**DEFAULTS[key], **loaded.get(key, {})}
-            except Exception:
+            except Exception as exc:
+                import sys
+                print(f"[SettingsManager] Config load failed: {exc}", file=sys.stderr)
                 self.data = copy.deepcopy(DEFAULTS)
                 self.save()
         else:
@@ -57,6 +59,8 @@ class SettingsManager:
             if provider == "ollama":
                 from langchain_ollama import ChatOllama
                 cfg = self.data["ollama"]
+                if not cfg.get("url") or not cfg.get("model"):
+                    return None
                 return ChatOllama(base_url=cfg["url"], model=cfg["model"])
             elif provider == "openai":
                 from langchain_openai import ChatOpenAI
