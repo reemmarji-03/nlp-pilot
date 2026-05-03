@@ -216,6 +216,8 @@ def train_supervised_model(
     model_name: str = "Auto",
     test_size: float = 0.2,
     random_state: int = 42,
+    cancel_event=None,
+    progress_callback=None,
 ) -> SupervisedResult:
     """
     Train either a classifier or regressor and return metrics.
@@ -239,7 +241,12 @@ def train_supervised_model(
             ]
 
             results: List[Dict[str, Any]] = []
-            for name, clf in candidates:
+            for i, (name, clf) in enumerate(candidates):
+                if cancel_event is not None and cancel_event.is_set():
+                    from core.task_runner import CancelledError
+                    raise CancelledError()
+                if progress_callback is not None:
+                    progress_callback(i / len(candidates), f"Trying {name}…")
                 try:
                     r = _evaluate_classifier(clf, X_train, X_test, y_train, y_test, name)
                     results.append(r)
@@ -253,6 +260,9 @@ def train_supervised_model(
             # Choose best by accuracy
             best = max(results, key=lambda r: r["accuracy"])
             candidate_scores = {r["name"]: r["accuracy"] for r in results}
+
+            if progress_callback is not None:
+                progress_callback(1.0, "Done.")
 
             metrics = {
                 "accuracy": best["accuracy"],
@@ -298,7 +308,12 @@ def train_supervised_model(
             ]
 
             results: List[Dict[str, Any]] = []
-            for name, reg in candidates:
+            for i, (name, reg) in enumerate(candidates):
+                if cancel_event is not None and cancel_event.is_set():
+                    from core.task_runner import CancelledError
+                    raise CancelledError()
+                if progress_callback is not None:
+                    progress_callback(i / len(candidates), f"Trying {name}…")
                 try:
                     r = _evaluate_regressor(reg, X_train, X_test, y_train, y_test, name)
                     results.append(r)
@@ -311,6 +326,9 @@ def train_supervised_model(
             # Choose best by R^2
             best = max(results, key=lambda r: r["R2"])
             candidate_scores = {r["name"]: r["R2"] for r in results}
+
+            if progress_callback is not None:
+                progress_callback(1.0, "Done.")
 
             metrics = {
                 "MAE": best["MAE"],
