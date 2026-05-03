@@ -2,6 +2,7 @@ import customtkinter as ctk
 
 from core.english_state import EnglishState
 from core.agent_graph import build_agent_graph, AgentState
+from core.task_runner import TaskRunner
 
 
 class AgentTab(ctk.CTkFrame):
@@ -22,6 +23,9 @@ class AgentTab(ctk.CTkFrame):
         self.current_phase = {"stage": "task_selection"}
         self.current_task_type = None
         self.decisions = {}
+
+        self.runner = TaskRunner(root=self)
+        self._send_btn = None   # set in _build_ui
 
         self._build_ui()
         self.pack(fill="both", expand=True)
@@ -81,7 +85,7 @@ class AgentTab(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
         btn_frame.grid(row=0, column=1, sticky="ns", padx=(0, 5), pady=5)
 
-        send_btn = ctk.CTkButton(
+        self._send_btn = ctk.CTkButton(
             btn_frame,
             text="Send",
             fg_color="#0078ff",
@@ -89,7 +93,7 @@ class AgentTab(ctk.CTkFrame):
             command=self.on_send,
             width=70,
         )
-        send_btn.pack(side="top", fill="x", pady=(0, 5))
+        self._send_btn.pack(side="top", fill="x", pady=(0, 5))
 
         reset_btn = ctk.CTkButton(
             btn_frame,
@@ -178,18 +182,23 @@ class AgentTab(ctk.CTkFrame):
             "decisions": self.decisions,
         }
 
-        new_state = self.graph.invoke(agent_state)
+        def _work():
+            return self.graph.invoke(agent_state)
 
-        # Extract updates
-        self.state = new_state["english_state"]
-        self.current_phase = new_state.get("phase", self.current_phase)
-        self.current_task_type = new_state.get("task_type", self.current_task_type)
-        self.decisions = new_state.get("decisions", self.decisions)
-        self.update_phase_label()
+        def _on_done(new_state):
+            self.state = new_state["english_state"]
+            self.current_phase = new_state.get("phase", self.current_phase)
+            self.current_task_type = new_state.get("task_type", self.current_task_type)
+            self.decisions = new_state.get("decisions", self.decisions)
+            self.update_phase_label()
+            msg = new_state.get("assistant_message", "").strip()
+            if msg:
+                self.add_message("agent", msg)
 
-        assistant_msg = new_state.get("assistant_message", "").strip()
-        if assistant_msg:
-            self.add_message("agent", assistant_msg)
+        def _on_error(exc):
+            self.add_message("agent", f"Could not start agent:\n{exc}")
+
+        self.runner.run(_work, on_done=_on_done, on_error=_on_error)
 
     def reset_agent(self):
         """
@@ -226,9 +235,12 @@ class AgentTab(ctk.CTkFrame):
         user_msg = self.input_box.get("1.0", "end").strip()
         if not user_msg:
             return
+        if self.runner.is_running:
+            return
 
         self.input_box.delete("1.0", "end")
         self.add_message("user", user_msg)
+        self._send_btn.configure(state="disabled", text="…")
 
         agent_state: AgentState = {
             "user_message": user_msg,
@@ -239,21 +251,24 @@ class AgentTab(ctk.CTkFrame):
             "decisions": self.decisions,
         }
 
-        try:
-            new_state = self.graph.invoke(agent_state)
-        except Exception as e:
-            self.add_message("agent", f"Oops, the agent crashed:\n`{e}`")
-            return
+        def _work():
+            return self.graph.invoke(agent_state)
 
-        self.state = new_state["english_state"]
-        self.current_phase = new_state.get("phase", self.current_phase)
-        self.current_task_type = new_state.get("task_type", self.current_task_type)
-        self.decisions = new_state.get("decisions", self.decisions)
-        self.update_phase_label()
+        def _on_done(new_state):
+            self._send_btn.configure(state="normal", text="Send")
+            self.state = new_state["english_state"]
+            self.current_phase = new_state.get("phase", self.current_phase)
+            self.current_task_type = new_state.get("task_type", self.current_task_type)
+            self.decisions = new_state.get("decisions", self.decisions)
+            self.update_phase_label()
+            msg = new_state.get("assistant_message", "").strip()
+            if msg:
+                self.add_message("agent", msg)
+            else:
+                self.add_message("agent", "(no response)")
 
-        assistant_msg = new_state.get("assistant_message", "").strip()
-        if assistant_msg:
-            self.add_message("agent", assistant_msg)
-        else:
-            self.add_message("agent", "(no response)")
+        def _on_error(exc):
+            self._send_btn.configure(state="normal", text="Send")
+            self.add_message("agent", f"Oops, the agent crashed:\n`{exc}`")
 
+        self.runner.run(_work, on_done=_on_done, on_error=_on_error)
