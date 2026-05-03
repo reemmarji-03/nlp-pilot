@@ -14,6 +14,8 @@ from core import english_nlp as enlp
 from core import supervised as sup
 from core import unsupervised as unsup
 from core import vectorization as vec
+from core.task_runner import TaskRunner
+from tabs.progress_overlay import ProgressOverlay
 
 
 # K-Means helper functions for animated mode
@@ -72,6 +74,22 @@ class PredictionTab(ctk.CTkFrame):
     def __init__(self, parent, state: EnglishState):
         super().__init__(parent, fg_color="#0f0f0f")
         self.state = state
+
+        # TaskRunner instances for background work
+        self.sup_runner = TaskRunner(root=self)
+        self.clust_runner = TaskRunner(root=self)
+        self.topic_runner = TaskRunner(root=self)
+
+        # ProgressOverlay instances (created during build_ui)
+        self.sup_progress = None
+        self.clust_progress = None
+        self.topic_progress = None
+
+        # Button references (created during build_ui)
+        self._sup_train_btn = None
+        self._clust_run_btn = None
+        self._clust_elbow_btn = None
+        self._topic_run_btn = None
 
         # supervised-related
         self.supervised_label_combo = None
@@ -245,13 +263,15 @@ class PredictionTab(ctk.CTkFrame):
         self.test_size_entry.pack(anchor="w", padx=10, pady=(2, 10))
 
         # Train button
-        ctk.CTkButton(
+        self._sup_train_btn = ctk.CTkButton(
             sidebar,
             text="Train model",
             fg_color="#0078ff",
             hover_color="#005dc1",
             command=self.train_supervised_model,
-        ).pack(fill="x", padx=10, pady=(0, 10))
+        )
+        self._sup_train_btn.pack(fill="x", padx=10, pady=(0, 10))
+        self.sup_progress = ProgressOverlay(sidebar, task_runner=self.sup_runner)
 
         # Right side: metrics + plot
         right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
@@ -389,7 +409,7 @@ class PredictionTab(ctk.CTkFrame):
             )
             return
 
-        # Use last vector settings, with sensible defaults if none yet
+        # Capture params before entering the thread
         vector_method = self.state.last_vector_method or "TF-IDF (word)"
         ngram = self.state.last_vector_ngram or (1, 2)
         max_feat = self.state.last_vector_max_features or 5000
@@ -401,8 +421,15 @@ class PredictionTab(ctk.CTkFrame):
         if test_size <= 0 or test_size >= 0.9:
             test_size = 0.2
 
-        # Build X, y from state
-        try:
+        chosen_model = self.supervised_model_combo.get() or "Auto"
+
+        # Disable UI and show progress
+        self._sup_train_btn.configure(state="disabled")
+        self.sup_progress.show("Building feature matrix…")
+
+        def _work(progress_callback=None, cancel_event=None):
+            if progress_callback:
+                progress_callback(0.05, "Building feature matrix…")
             X, y, task_type = sup.build_xy_from_state(
                 self.state,
                 label_column=label_col,
@@ -410,26 +437,49 @@ class PredictionTab(ctk.CTkFrame):
                 ngram_range=ngram,
                 max_features=max_feat,
             )
-        except Exception as e:
-            messagebox.showerror("Error building X/y", str(e))
-            return
-
-        chosen_model = self.supervised_model_combo.get() or "Auto"
-
-        # Train model
-        try:
+            if cancel_event is not None and cancel_event.is_set():
+                from core.task_runner import CancelledError
+                raise CancelledError()
+            if progress_callback:
+                progress_callback(0.2, "Training…")
             result = sup.train_supervised_model(
                 X,
                 y,
                 task_type=task_type,
                 model_name=chosen_model,
                 test_size=test_size,
+                cancel_event=cancel_event,
+                progress_callback=(
+                    (lambda p, m: progress_callback(0.2 + p * 0.8, m))
+                    if progress_callback else None
+                ),
             )
-        except Exception as e:
-            messagebox.showerror("Training error", str(e))
-            return
+            return result, task_type, vector_method, ngram, max_feat
 
-        # Show metrics
+        def _on_done(payload):
+            result, task_type, vm, ng, mf = payload
+            self.sup_progress.hide()
+            self._sup_train_btn.configure(state="normal")
+            self._display_supervised_results(result, vm, ng, mf)
+
+        def _on_error(exc):
+            self.sup_progress.hide()
+            self._sup_train_btn.configure(state="normal")
+            messagebox.showerror("Training error", str(exc))
+
+        def _on_cancel():
+            self.sup_progress.hide()
+            self._sup_train_btn.configure(state="normal")
+
+        self.sup_runner.run(
+            _work,
+            on_done=_on_done,
+            on_error=_on_error,
+            on_cancel=_on_cancel,
+        )
+
+    def _display_supervised_results(self, result, vector_method, ngram, max_feat):
+        """Display metrics and confusion matrix after training completes."""
         self.supervised_metrics_box.delete("1.0", "end")
         self.supervised_metrics_box.insert("end", f"Task type: {result.task_type}\n")
         self.supervised_metrics_box.insert("end", f"Model: {result.model_name}\n\n")
@@ -575,20 +625,23 @@ class PredictionTab(ctk.CTkFrame):
         self.cluster_k_entry.insert(0, "3")
         self.cluster_k_entry.pack(anchor="w", padx=10, pady=(2, 10))
 
-        ctk.CTkButton(
+        self._clust_run_btn = ctk.CTkButton(
             sidebar,
             text="Run clustering",
             fg_color="#0078ff",
             hover_color="#005dc1",
             command=self.run_clustering,
-        ).pack(fill="x", padx=10, pady=(5, 10))
-        ctk.CTkButton(
+        )
+        self._clust_run_btn.pack(fill="x", padx=10, pady=(5, 10))
+        self._clust_elbow_btn = ctk.CTkButton(
             sidebar,
             text="Elbow method (suggest k)",
             fg_color="#444444",
             hover_color="#333333",
             command=self.run_elbow_method,
-        ).pack(fill="x", padx=10, pady=(0, 10))
+        )
+        self._clust_elbow_btn.pack(fill="x", padx=10, pady=(0, 10))
+        self.clust_progress = ProgressOverlay(sidebar, task_runner=self.clust_runner)
 
         # Right side: summary + plot/animation
         right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
@@ -629,7 +682,7 @@ class PredictionTab(ctk.CTkFrame):
             )
             return
 
-        # Use last vector settings
+        # Capture params before entering the thread
         vector_method = self.state.last_vector_method or "TF-IDF (word)"
         ngram = self.state.last_vector_ngram or (1, 2)
         max_feat = self.state.last_vector_max_features or 5000
@@ -643,31 +696,60 @@ class PredictionTab(ctk.CTkFrame):
 
         mode = self.cluster_mode_combo.get()
 
-        # Build X
-        try:
+        # Disable UI and show progress
+        self._clust_run_btn.configure(state="disabled")
+        self._clust_elbow_btn.configure(state="disabled")
+        self.clust_progress.show("Building feature matrix…")
+
+        def _work(progress_callback=None, cancel_event=None):
+            if progress_callback:
+                progress_callback(0.1, "Building feature matrix…")
             X, labels_for_display = unsup.build_X_from_state(
                 self.state,
                 vector_method=vector_method,
                 ngram_range=ngram,
                 max_features=max_feat,
             )
-        except Exception as e:
-            messagebox.showerror("Error building X", str(e))
-            return
+            if cancel_event is not None and cancel_event.is_set():
+                from core.task_runner import CancelledError
+                raise CancelledError()
+            return X, labels_for_display, vector_method, ngram, max_feat, k, mode
 
-        # Summary header
-        self.cluster_summary_box.delete("1.0", "end")
-        self.cluster_summary_box.insert(
-            "end",
-            f"Vectorization method: {vector_method}, "
-            f"ngram={ngram}, max_features={max_feat}\n"
-            f"Samples: {X.shape[0]}, Dim: {X.shape[1]}\n\n",
+        def _on_done(payload):
+            X, labels_for_display, vm, ng, mf, _k, _mode = payload
+            self.clust_progress.hide()
+            self._clust_run_btn.configure(state="normal")
+            self._clust_elbow_btn.configure(state="normal")
+            # Summary header
+            self.cluster_summary_box.delete("1.0", "end")
+            self.cluster_summary_box.insert(
+                "end",
+                f"Vectorization method: {vm}, "
+                f"ngram={ng}, max_features={mf}\n"
+                f"Samples: {X.shape[0]}, Dim: {X.shape[1]}\n\n",
+            )
+            if _mode == "K-Means (static sklearn)":
+                self._run_static_kmeans(X, labels_for_display, _k)
+            else:
+                self._run_animated_kmeans(X, _k)
+
+        def _on_error(exc):
+            self.clust_progress.hide()
+            self._clust_run_btn.configure(state="normal")
+            self._clust_elbow_btn.configure(state="normal")
+            messagebox.showerror("Error building X", str(exc))
+
+        def _on_cancel():
+            self.clust_progress.hide()
+            self._clust_run_btn.configure(state="normal")
+            self._clust_elbow_btn.configure(state="normal")
+
+        self.clust_runner.run(
+            _work,
+            on_done=_on_done,
+            on_error=_on_error,
+            on_cancel=_on_cancel,
         )
-
-        if mode == "K-Means (static sklearn)":
-            self._run_static_kmeans(X, labels_for_display, k)
-        else:
-            self._run_animated_kmeans(X, k)
     def run_elbow_method(self):
         """
         Run K-Means for a range of k values and plot the elbow curve (k vs inertia).
@@ -680,38 +762,43 @@ class PredictionTab(ctk.CTkFrame):
             )
             return
 
-        # Use last vector settings
+        # Capture params before entering the thread
         vector_method = self.state.last_vector_method or "TF-IDF (word)"
         ngram = self.state.last_vector_ngram or (1, 2)
         max_feat = self.state.last_vector_max_features or 5000
 
-        # Build X (no labels needed)
-        try:
+        # Disable UI and show progress
+        self._clust_run_btn.configure(state="disabled")
+        self._clust_elbow_btn.configure(state="disabled")
+        self.clust_progress.show("Building feature matrix…")
+
+        def _work(progress_callback=None, cancel_event=None):
+            if progress_callback:
+                progress_callback(0.05, "Building feature matrix…")
             X, _labels_for_display = unsup.build_X_from_state(
                 self.state,
                 vector_method=vector_method,
                 ngram_range=ngram,
                 max_features=max_feat,
             )
-        except Exception as e:
-            messagebox.showerror("Error building X for elbow method", str(e))
-            return
+            if cancel_event is not None and cancel_event.is_set():
+                from core.task_runner import CancelledError
+                raise CancelledError()
 
-        n_samples = X.shape[0]
-        if n_samples < 5:
-            messagebox.showwarning(
-                "Warning",
-                "Not enough samples for a meaningful elbow curve (need at least ~5 rows).",
-            )
-            return
+            n_samples = X.shape[0]
 
-        # Choose a reasonable k range: 2 .. min(10, n_samples-1)
-        max_k = int(min(10, max(2, n_samples - 1)))
-        k_values = list(range(2, max_k + 1))
+            # Choose a reasonable k range: 2 .. min(10, n_samples-1)
+            max_k = int(min(10, max(2, n_samples - 1)))
+            k_values = list(range(2, max_k + 1))
 
-        inertias = []
-        for k in k_values:
-            try:
+            inertias = []
+            total_k = len(k_values)
+            for ki, k in enumerate(k_values):
+                if cancel_event is not None and cancel_event.is_set():
+                    from core.task_runner import CancelledError
+                    raise CancelledError()
+                if progress_callback:
+                    progress_callback(0.1 + 0.9 * ki / max(total_k, 1), f"Fitting k={k}…")
                 km = KMeans(
                     n_clusters=k,
                     random_state=42,
@@ -719,10 +806,42 @@ class PredictionTab(ctk.CTkFrame):
                 )
                 km.fit(X)
                 inertias.append(float(km.inertia_))
-            except Exception as e:
-                messagebox.showerror("K-Means error", f"Error at k={k}:\n{e}")
-                return
 
+            return X, n_samples, k_values, inertias, vector_method, ngram, max_feat
+
+        def _on_done(payload):
+            X, n_samples, k_values, inertias, vm, ng, mf = payload
+            self.clust_progress.hide()
+            self._clust_run_btn.configure(state="normal")
+            self._clust_elbow_btn.configure(state="normal")
+            if n_samples < 5:
+                messagebox.showwarning(
+                    "Warning",
+                    "Not enough samples for a meaningful elbow curve (need at least ~5 rows).",
+                )
+                return
+            self._display_elbow_results(n_samples, k_values, inertias, vm, ng, mf)
+
+        def _on_error(exc):
+            self.clust_progress.hide()
+            self._clust_run_btn.configure(state="normal")
+            self._clust_elbow_btn.configure(state="normal")
+            messagebox.showerror("Elbow method error", str(exc))
+
+        def _on_cancel():
+            self.clust_progress.hide()
+            self._clust_run_btn.configure(state="normal")
+            self._clust_elbow_btn.configure(state="normal")
+
+        self.clust_runner.run(
+            _work,
+            on_done=_on_done,
+            on_error=_on_error,
+            on_cancel=_on_cancel,
+        )
+
+    def _display_elbow_results(self, n_samples, k_values, inertias, vector_method, ngram, max_feat):
+        """Display the elbow curve plot and summary after the k-loop completes."""
         # Clear old plot and summary, then show elbow info
         self._clear_cluster_plot()
         self.cluster_summary_box.delete("1.0", "end")
@@ -1009,13 +1128,15 @@ class PredictionTab(ctk.CTkFrame):
             justify="left",
         ).pack(padx=10, pady=(0, 10))
 
-        ctk.CTkButton(
+        self._topic_run_btn = ctk.CTkButton(
             sidebar,
             text="Run BERTopic",
             fg_color="#0078ff",
             hover_color="#005dc1",
             command=self.run_bertopic,
-        ).pack(fill="x", padx=10, pady=(5, 10))
+        )
+        self._topic_run_btn.pack(fill="x", padx=10, pady=(5, 10))
+        self.topic_progress = ProgressOverlay(sidebar, task_runner=self.topic_runner)
 
         # Right side: Summary + Plot
         right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
@@ -1064,29 +1185,56 @@ class PredictionTab(ctk.CTkFrame):
             messagebox.showwarning("Warning", "Need at least 5 rows.")
             return
 
-        # Run BERTopic with stop-word removal
-        try:
+        # Disable UI and show progress
+        self._topic_run_btn.configure(state="disabled")
+        self.topic_progress.show("Running BERTopic…")
+
+        def _work(progress_callback=None, cancel_event=None):
             vectorizer_model = CountVectorizer(stop_words="english")
-            self.topic_model = BERTopic(vectorizer_model=vectorizer_model, verbose=False)
-            topics, probs = self.topic_model.fit_transform(docs)
-        except Exception as e:
-            messagebox.showerror("BERTopic error", str(e))
-            return
+            topic_model = BERTopic(vectorizer_model=vectorizer_model, verbose=False)
+            topics, probs = topic_model.fit_transform(docs)
+            topic_info = topic_model.get_topic_info()
+            doc_info = topic_model.get_document_info(docs)
+            return topic_model, docs, topic_info, doc_info
 
-        # Save data for later
-        self.docs = docs
-        self.topic_info = self.topic_model.get_topic_info()
-        self.doc_info = self.topic_model.get_document_info(docs)
+        def _on_done(payload):
+            topic_model, _docs, topic_info, doc_info = payload
+            self.topic_progress.hide()
+            self._topic_run_btn.configure(state="normal")
+            # Save data for later
+            self.topic_model = topic_model
+            self.docs = _docs
+            self.topic_info = topic_info
+            self.doc_info = doc_info
+            self._display_bertopic_results(topic_model, topic_info)
 
+        def _on_error(exc):
+            self.topic_progress.hide()
+            self._topic_run_btn.configure(state="normal")
+            messagebox.showerror("BERTopic error", str(exc))
+
+        def _on_cancel():
+            self.topic_progress.hide()
+            self._topic_run_btn.configure(state="normal")
+
+        self.topic_runner.run(
+            _work,
+            on_done=_on_done,
+            on_error=_on_error,
+            on_cancel=_on_cancel,
+        )
+
+    def _display_bertopic_results(self, topic_model, topic_info):
+        """Display topic summary and bar chart after BERTopic completes."""
         # TOPIC SUMMARY
         self.topic_summary_box.delete("1.0", "end")
         self.topic_summary_box.insert("end", "Top Topics (double-click to inspect):\n\n")
 
-        top_info = self.topic_info[self.topic_info["Topic"] != -1]
+        top_info = topic_info[topic_info["Topic"] != -1]
 
         for _, row in top_info.iterrows():
             tid = row["Topic"]
-            words = self.topic_model.get_topic(tid) or []
+            words = topic_model.get_topic(tid) or []
             top_words = ", ".join(w for w, _ in words[:5])
             self.topic_summary_box.insert("end", f"[Topic {tid}] ({row['Count']} docs): {top_words}\n")
 
