@@ -87,9 +87,21 @@ def build_X_from_state(
     return X, labels_for_display
 
 
-def run_kmeans(X: np.ndarray, n_clusters: int = 3) -> ClusteringResult:
+def run_kmeans(
+    X: np.ndarray,
+    n_clusters: int = 3,
+    cancel_event=None,
+    progress_callback=None,
+) -> ClusteringResult:
+    if cancel_event is not None and cancel_event.is_set():
+        from core.task_runner import CancelledError
+        raise CancelledError()
+    if progress_callback is not None:
+        progress_callback(0.0, "Running K-Means…")
     km = KMeans(n_clusters=n_clusters, n_init=10)
     km.fit(X)
+    if progress_callback is not None:
+        progress_callback(1.0, "Done.")
     return ClusteringResult(
         labels=km.labels_,
         centroids=km.cluster_centers_,
