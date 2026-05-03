@@ -16,6 +16,7 @@ class ProgressOverlay(ctk.CTkFrame):
     def __init__(self, parent, task_runner: "TaskRunner"):
         super().__init__(parent, fg_color="#1e1e1e", corner_radius=8)
         self._runner = task_runner
+        self._indeterminate = False
         self._build()
 
     def _build(self) -> None:
@@ -45,15 +46,19 @@ class ProgressOverlay(ctk.CTkFrame):
         self._label.configure(text=message)
         self._bar.configure(mode="indeterminate")
         self._bar.start()
+        self._indeterminate = True
         self.pack(fill="x", padx=10, pady=(0, 8))
 
     def update(self, percent: float, message: str) -> None:
         self._label.configure(text=message)
-        if self._bar.cget("mode") == "indeterminate":
+        if self._indeterminate:
             self._bar.stop()
             self._bar.configure(mode="determinate")
+            self._indeterminate = False
         self._bar.set(max(0.0, min(1.0, percent)))
 
     def hide(self) -> None:
-        self._bar.stop()
+        if self._indeterminate:
+            self._bar.stop()
+            self._indeterminate = False
         self.pack_forget()

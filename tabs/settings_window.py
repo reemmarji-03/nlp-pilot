@@ -210,14 +210,16 @@ class SettingsWindow(ctk.CTkToplevel):
                     data = json.loads(resp.read())
                 models = [m["name"] for m in data.get("models", [])]
                 if models:
-                    self.after(0, lambda: (
-                        self._ollama_model.configure(values=models),
-                        self._ollama_model.set(models[0]),
-                    ))
+                    def _update():
+                        if self.winfo_exists():
+                            self._ollama_model.configure(values=models)
+                            self._ollama_model.set(models[0])
+                    self.after(0, _update)
             except Exception as exc:
-                self.after(0, lambda e=exc: messagebox.showerror(
-                    "Ollama Error", f"Could not fetch models:\n{e}", parent=self
-                ))
+                def _error(e=exc):
+                    if self.winfo_exists():
+                        messagebox.showerror("Ollama Error", f"Could not fetch models:\n{e}", parent=self)
+                self.after(0, _error)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -230,13 +232,17 @@ class SettingsWindow(ctk.CTkToplevel):
             try:
                 with urllib.request.urlopen(f"{url}/api/version", timeout=5):
                     pass
-                self.after(0, lambda: self._ollama_status.configure(text="●", text_color="#44ff44"))
+                def _ok():
+                    if self.winfo_exists():
+                        self._ollama_status.configure(text="●", text_color="#44ff44")
+                self.after(0, _ok)
             except Exception as exc:
                 err = str(exc)
-                self.after(0, lambda: (
-                    self._ollama_status.configure(text="●", text_color="#ff4444"),
-                    self._ollama_msg.configure(text=err[:80]),
-                ))
+                def _fail(e=err):
+                    if self.winfo_exists():
+                        self._ollama_status.configure(text="●", text_color="#ff4444")
+                        self._ollama_msg.configure(text=e[:80])
+                self.after(0, _fail)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -252,13 +258,17 @@ class SettingsWindow(ctk.CTkToplevel):
                 from langchain.schema import HumanMessage
                 llm = ChatOpenAI(api_key=key, model=model, temperature=0, max_tokens=1)
                 llm.invoke([HumanMessage(content="hi")])
-                self.after(0, lambda: self._openai_status.configure(text="●", text_color="#44ff44"))
+                def _ok():
+                    if self.winfo_exists():
+                        self._openai_status.configure(text="●", text_color="#44ff44")
+                self.after(0, _ok)
             except Exception as exc:
                 err = str(exc)[:80]
-                self.after(0, lambda: (
-                    self._openai_status.configure(text="●", text_color="#ff4444"),
-                    self._openai_msg.configure(text=err),
-                ))
+                def _fail(e=err):
+                    if self.winfo_exists():
+                        self._openai_status.configure(text="●", text_color="#ff4444")
+                        self._openai_msg.configure(text=e)
+                self.after(0, _fail)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -274,13 +284,17 @@ class SettingsWindow(ctk.CTkToplevel):
                 from langchain.schema import HumanMessage
                 llm = ChatAnthropic(api_key=key, model=model, temperature=0, max_tokens=1)
                 llm.invoke([HumanMessage(content="hi")])
-                self.after(0, lambda: self._anthropic_status.configure(text="●", text_color="#44ff44"))
+                def _ok():
+                    if self.winfo_exists():
+                        self._anthropic_status.configure(text="●", text_color="#44ff44")
+                self.after(0, _ok)
             except Exception as exc:
                 err = str(exc)[:80]
-                self.after(0, lambda: (
-                    self._anthropic_status.configure(text="●", text_color="#ff4444"),
-                    self._anthropic_msg.configure(text=err),
-                ))
+                def _fail(e=err):
+                    if self.winfo_exists():
+                        self._anthropic_status.configure(text="●", text_color="#ff4444")
+                        self._anthropic_msg.configure(text=e)
+                self.after(0, _fail)
 
         threading.Thread(target=_worker, daemon=True).start()
 
