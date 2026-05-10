@@ -197,13 +197,9 @@ class DocumentToolsTab(ctk.CTkFrame):
         # enter CSV mode
         self.state.df = df
         self.state.csv_text_column = col
-
-        # update state for prediction
-
-        self.on_state_changed()
-        # Clear text to make it obvious we're not in plain-text mode
         self.state.text = ""
         self.state.file_name = os.path.basename(path)
+        self.on_state_changed()
 
         self.file_label.configure(text=f"📂  {self.state.file_name} (CSV, col: {col})")
         self.output.delete("1.0", "end")

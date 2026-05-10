@@ -40,4 +40,5 @@ class EnglishTab(ctk.CTkFrame):
 
     def on_state_changed(self):
         self.prediction_tab.sync_with_state()
-        self.data_quality_tab.refresh()
+        if hasattr(self, "data_quality_tab"):
+            self.data_quality_tab.refresh()
