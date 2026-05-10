@@ -271,9 +271,6 @@ def apply_pipeline(text: str, cfg, stopword_set=None) -> str:
             # you can add more custom steps here later: emoji_to_text, profanity, etc.
 
             # OPTIONAL REGEX STEP – this is *not* a pipeline step name, just extra config
-    print("PIPELINE CFG:", cfg)
-    print("REGEX CFG:", cfg.get("regex"))
-
     regex_cfg = cfg.get("regex")
     if regex_cfg:
         pattern = regex_cfg.get("pattern") or ""
