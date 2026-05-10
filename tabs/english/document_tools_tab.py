@@ -397,13 +397,13 @@ class DocumentToolsTab(ctk.CTkFrame):
 
     def show_chart(self, fig):
         """Replace the textbox with a Matplotlib chart."""
-        # Clear existing widgets (textbox or previous chart)
         for w in self.output_container.winfo_children():
             w.destroy()
 
         canvas = FigureCanvasTkAgg(fig, master=self.output_container)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
+        plt.close(fig)
 
 
 
