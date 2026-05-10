@@ -26,7 +26,7 @@ class EnglishTab(ctk.CTkFrame):
         vect_frame = self.section_tabs.add("Vectorization")
         prediction_frame = self.section_tabs.add("Prediction")
         rag_frame = self.section_tabs.add("RAG")
-        agent_frame = self.section_tabs.add("Agent")
+        agent_frame = self.section_tabs.add("Agent Lab")
 
         self.doc_tab = DocumentToolsTab(
             doc_frame, self.state, on_state_changed=self.on_state_changed

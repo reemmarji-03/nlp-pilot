@@ -5,12 +5,11 @@ from threading import Thread
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_ollama import OllamaLLM
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 
-import lookups
+from core.settings_manager import settings
 import time
 
 
@@ -124,8 +123,14 @@ class RAGTab(ctk.CTkFrame):
                 self.db = FAISS.from_documents(docs, embed)
 
                 # LLM
-                self.index_log.insert("end", "🤖 Loading Ollama model llama3:8b...\n")
-                llm = OllamaLLM(model=lookups.ollama_model_name)
+                self.index_log.insert("end", "Loading configured LLM provider...\n")
+                llm = settings.get_llm()
+                if llm is None:
+                    self.index_log.insert(
+                        "end",
+                        "No LLM provider configured. Open Settings to select Ollama, OpenAI, or Anthropic.\n",
+                    )
+                    return
 
                 # Build prompt
                 prompt = ChatPromptTemplate.from_template(

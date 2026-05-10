@@ -2,10 +2,13 @@
 from sklearn.cluster import KMeans
 from bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer
+from umap import UMAP
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
+import json
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -14,6 +17,7 @@ from core import english_nlp as enlp
 from core import supervised as sup
 from core import unsupervised as unsup
 from core import vectorization as vec
+from core.settings_manager import settings
 from core.task_runner import TaskRunner
 from tabs.progress_overlay import ProgressOverlay
 
@@ -26,7 +30,7 @@ def euclid_dist(p, q):
 
 def pick_centers(points, k):
     import random
-    return random.sample(points, k)
+    return random.Random(settings.get_seed()).sample(points, k)
 
 
 def clusterize(points, centers):
@@ -55,6 +59,20 @@ def centroids_converged(old, new, tol=1e-4):
         if euclid_dist(o, n) > tol:
             return False
     return True
+
+
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 
 # PREDICTION TAB
@@ -107,6 +125,8 @@ class PredictionTab(ctk.CTkFrame):
         self.supervised_plot_canvas = None
         self.supervised_plot_container = None
         self.current_task_type = None  # "classification" or "regression"
+        self.last_supervised_result = None
+        self.last_supervised_context = {}
 
         # clustering-related
         self.clustering_vector_label = None
@@ -120,6 +140,7 @@ class PredictionTab(ctk.CTkFrame):
         self.topic_plot_container = None
         self.topic_plot_figure = None
         self.topic_plot_canvas = None
+        self.last_topic_export = None
         # animated K-Means state
         self.cluster_canvas = None
         self.points = []          # list [[x,y], ...] PCA coords mapped to canvas
@@ -277,6 +298,20 @@ class PredictionTab(ctk.CTkFrame):
             command=self.train_supervised_model,
         )
         self._sup_train_btn.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkButton(
+            sidebar,
+            text="Export results (JSON)",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.export_supervised_json,
+        ).pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkButton(
+            sidebar,
+            text="Export predictions (CSV)",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.export_supervised_predictions_csv,
+        ).pack(fill="x", padx=10, pady=(0, 10))
         self.sup_progress = ProgressOverlay(sidebar, task_runner=self.sup_runner)
 
         # Right side: metrics + plot
@@ -431,41 +466,38 @@ class PredictionTab(ctk.CTkFrame):
 
         # Disable UI and show progress
         self._sup_train_btn.configure(state="disabled")
-        self.sup_progress.show("Building feature matrix…")
+        self.sup_progress.show("Preparing supervised run...")
 
         def _work(progress_callback=None, cancel_event=None):
             if progress_callback:
-                progress_callback(0.05, "Building feature matrix…")
-            X, y, task_type = sup.build_xy_from_state(
+                progress_callback(0.05, "Preparing train/test split...")
+            result = sup.train_supervised_from_state(
                 self.state,
                 label_column=label_col,
                 vector_method=vector_method,
                 ngram_range=ngram,
                 max_features=max_feat,
-            )
-            if cancel_event is not None and cancel_event.is_set():
-                from core.task_runner import CancelledError
-                raise CancelledError()
-            if progress_callback:
-                progress_callback(0.2, "Training…")
-            result = sup.train_supervised_model(
-                X,
-                y,
-                task_type=task_type,
                 model_name=chosen_model,
                 test_size=test_size,
+                random_state=settings.get_seed(),
                 cancel_event=cancel_event,
-                progress_callback=(
-                    (lambda p, m: progress_callback(0.2 + p * 0.8, m))
-                    if progress_callback else None
-                ),
+                progress_callback=progress_callback,
             )
-            return result, task_type, vector_method, ngram, max_feat
+            return result, vector_method, ngram, max_feat
 
         def _on_done(payload):
-            result, task_type, vm, ng, mf = payload
+            result, vm, ng, mf = payload
             self.sup_progress.hide()
             self._sup_train_btn.configure(state="normal")
+            self.last_supervised_result = result
+            self.last_supervised_context = {
+                "label_column": label_col,
+                "vector_method": vm,
+                "ngram_range": list(ng),
+                "max_features": mf,
+                "test_size": test_size,
+                "seed": settings.get_seed(),
+            }
             self._display_supervised_results(result, vm, ng, mf)
 
         def _on_error(exc):
@@ -489,6 +521,13 @@ class PredictionTab(ctk.CTkFrame):
         self.supervised_metrics_box.delete("1.0", "end")
         self.supervised_metrics_box.insert("end", f"Task type: {result.task_type}\n")
         self.supervised_metrics_box.insert("end", f"Model: {result.model_name}\n\n")
+        strategy = result.metrics.get("selection_strategy")
+        if strategy:
+            self.supervised_metrics_box.insert(
+                "end",
+                f"Auto selection strategy: {strategy}\n"
+                f"Seed: {settings.get_seed()}\n\n",
+            )
         self.supervised_metrics_box.insert(
             "end",
             f"Vectorization:\n  method={vector_method}, "
@@ -534,9 +573,71 @@ class PredictionTab(ctk.CTkFrame):
             for k, v in result.metrics.items():
                 if k == "candidate_scores":
                     continue
+                if k == "selection_strategy":
+                    continue
                 self.supervised_metrics_box.insert("end", f"{k}: {v:.4f}\n")
 
             self._clear_supervised_plot()
+
+    def export_supervised_json(self):
+        result = self.last_supervised_result
+        if result is None:
+            messagebox.showwarning("Warning", "Train a supervised model first.")
+            return
+
+        payload = {
+            "context": self.last_supervised_context,
+            "task_type": result.task_type,
+            "model_name": result.model_name,
+            "metrics": _json_safe(result.metrics),
+            "confusion_matrix": result.cm.tolist() if result.cm is not None else None,
+            "test_indices": (
+                result.test_indices.tolist() if result.test_indices is not None else None
+            ),
+        }
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialfile="nlp_pilot_supervised_results.json",
+            title="Save supervised results JSON",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception as exc:
+            messagebox.showerror("Export error", f"Could not save JSON:\n{exc}")
+
+    def export_supervised_predictions_csv(self):
+        result = self.last_supervised_result
+        if result is None:
+            messagebox.showwarning("Warning", "Train a supervised model first.")
+            return
+
+        df = pd.DataFrame(
+            {
+                "row_index": (
+                    result.test_indices
+                    if result.test_indices is not None
+                    else np.arange(len(result.y_true))
+                ),
+                "y_true": result.y_true,
+                "y_pred": result.y_pred,
+            }
+        )
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="nlp_pilot_supervised_predictions.csv",
+            title="Save supervised predictions CSV",
+        )
+        if not path:
+            return
+        try:
+            df.to_csv(path, index=False, encoding="utf-8")
+        except Exception as exc:
+            messagebox.showerror("Export error", f"Could not save CSV:\n{exc}")
 
     def _plot_confusion_matrix(self, cm: np.ndarray):
         self._clear_supervised_plot()
@@ -809,7 +910,7 @@ class PredictionTab(ctk.CTkFrame):
                     progress_callback(0.1 + 0.9 * ki / max(total_k, 1), f"Fitting k={k}…")
                 km = KMeans(
                     n_clusters=k,
-                    random_state=42,
+                    random_state=settings.get_seed(),
                     n_init="auto" if hasattr(KMeans, "n_init") else 10,
                 )
                 km.fit(X)
@@ -911,7 +1012,7 @@ class PredictionTab(ctk.CTkFrame):
     # ---------- Static K-Means using sklearn + PCA plot ---------- #
     def _run_static_kmeans(self, X: np.ndarray, labels_for_display, k: int):
         try:
-            result = unsup.run_kmeans(X, n_clusters=k)
+            result = unsup.run_kmeans(X, n_clusters=k, random_state=settings.get_seed())
         except Exception as e:
             messagebox.showerror("Clustering error", str(e))
             return
@@ -1144,6 +1245,20 @@ class PredictionTab(ctk.CTkFrame):
             command=self.run_bertopic,
         )
         self._topic_run_btn.pack(fill="x", padx=10, pady=(5, 10))
+        ctk.CTkButton(
+            sidebar,
+            text="Export topics (CSV)",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.export_topics_csv,
+        ).pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkButton(
+            sidebar,
+            text="Export topics (JSON)",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.export_topics_json,
+        ).pack(fill="x", padx=10, pady=(0, 10))
         self.topic_progress = ProgressOverlay(sidebar, task_runner=self.topic_runner)
 
         # Right side: Summary + Plot
@@ -1199,7 +1314,11 @@ class PredictionTab(ctk.CTkFrame):
 
         def _work(progress_callback=None, cancel_event=None):
             vectorizer_model = CountVectorizer(stop_words="english")
-            topic_model = BERTopic(vectorizer_model=vectorizer_model, verbose=False)
+            topic_model = BERTopic(
+                vectorizer_model=vectorizer_model,
+                umap_model=UMAP(random_state=settings.get_seed()),
+                verbose=False,
+            )
             topics, probs = topic_model.fit_transform(docs)
             topic_info = topic_model.get_topic_info()
             doc_info = topic_model.get_document_info(docs)
@@ -1214,6 +1333,10 @@ class PredictionTab(ctk.CTkFrame):
             self.docs = _docs
             self.topic_info = topic_info
             self.doc_info = doc_info
+            self.last_topic_export = {
+                "seed": settings.get_seed(),
+                "text_column": self.state.csv_text_column,
+            }
             self._display_bertopic_results(topic_model, topic_info)
 
         def _on_error(exc):
@@ -1259,6 +1382,46 @@ class PredictionTab(ctk.CTkFrame):
         self.topic_plot_canvas = FigureCanvasTkAgg(self.topic_plot_figure, master=self.topic_plot_container)
         self.topic_plot_canvas.draw()
         self.topic_plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def export_topics_csv(self):
+        if self.topic_info is None or self.doc_info is None:
+            messagebox.showwarning("Warning", "Run BERTopic first.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="nlp_pilot_topics.csv",
+            title="Save topics CSV",
+        )
+        if not path:
+            return
+        try:
+            self.doc_info.to_csv(path, index=False, encoding="utf-8")
+        except Exception as exc:
+            messagebox.showerror("Export error", f"Could not save CSV:\n{exc}")
+
+    def export_topics_json(self):
+        if self.topic_info is None or self.doc_info is None:
+            messagebox.showwarning("Warning", "Run BERTopic first.")
+            return
+        payload = {
+            "context": self.last_topic_export or {},
+            "topic_info": self.topic_info.to_dict(orient="records"),
+            "document_info": self.doc_info.to_dict(orient="records"),
+        }
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialfile="nlp_pilot_topics.json",
+            title="Save topics JSON",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(_json_safe(payload), f, indent=2)
+        except Exception as exc:
+            messagebox.showerror("Export error", f"Could not save JSON:\n{exc}")
 
     # -----------------------------------------------------------
     # NEW: Clicking a topic shows example documents

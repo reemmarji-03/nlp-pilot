@@ -3,3 +3,9 @@ __pycache__
 *.pyc
 .env
 .worktrees/
+
+.venv1/
+.vscode/
+.claude/
+.idea/
+docs/

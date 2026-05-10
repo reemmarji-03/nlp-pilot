@@ -546,19 +546,15 @@ def model_run_node(state: AgentState) -> AgentState:
     test_size = float(decisions.get("test_size", 0.2))
 
     try:
-        X, y, task_type = sup.build_xy_from_state(
+        result = sup.train_supervised_from_state(
             eng,
             label_column=label_col,
             vector_method=vector_method,
             ngram_range=tuple(ngram),
             max_features=max_feat,
-        )
-        result = sup.train_supervised_model(
-            X,
-            y,
-            task_type=task_type,
             model_name=model_name,
             test_size=test_size,
+            random_state=settings.get_seed(),
         )
     except Exception as e:
         state["ui_intent"] = "training_failed"
@@ -580,10 +576,16 @@ def model_run_node(state: AgentState) -> AgentState:
             "confusion_matrix": cm.tolist(),
         }
     else:
+        regression_metrics = {}
+        for k, v in result.metrics.items():
+            try:
+                regression_metrics[k] = float(v)
+            except Exception:
+                regression_metrics[k] = v
         metrics_payload = {
             "task_type": result.task_type,
             "model_name": result.model_name,
-            "metrics": {k: float(v) for k, v in result.metrics.items()},
+            "metrics": regression_metrics,
         }
 
     state["ui_intent"] = "results_summary"

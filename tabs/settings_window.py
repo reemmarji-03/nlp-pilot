@@ -7,6 +7,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 
 from core.settings_manager import settings
+from core.reproducibility import set_global_seed
 
 
 class SettingsWindow(ctk.CTkToplevel):
@@ -313,4 +314,5 @@ class SettingsWindow(ctk.CTkToplevel):
         except ValueError:
             settings.data["random_seed"] = 42
         settings.save()
+        set_global_seed(settings.get_seed())
         self.destroy()

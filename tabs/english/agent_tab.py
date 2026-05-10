@@ -126,7 +126,7 @@ class AgentTab(ctk.CTkFrame):
             bubble_color = "#242424"  # dark gray
             anchor = "w"
             justify = "left"
-            text_prefix = "Agent"
+            text_prefix = "Agent Lab"
 
         bubble = ctk.CTkFrame(
             container,
@@ -196,7 +196,7 @@ class AgentTab(ctk.CTkFrame):
                 self.add_message("agent", msg)
 
         def _on_error(exc):
-            self.add_message("agent", f"Could not start agent:\n{exc}")
+            self.add_message("agent", f"Could not start Agent Lab:\n{exc}")
 
         self.runner.run(_work, on_done=_on_done, on_error=_on_error)
 
@@ -271,6 +271,6 @@ class AgentTab(ctk.CTkFrame):
 
         def _on_error(exc):
             self._send_btn.configure(state="normal", text="Send")
-            self.add_message("agent", f"Oops, the agent crashed:\n`{exc}`")
+            self.add_message("agent", f"Agent Lab error:\n`{exc}`")
 
         self.runner.run(_work, on_done=_on_done, on_error=_on_error)

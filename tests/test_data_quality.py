@@ -70,3 +70,11 @@ def test_csv_stats_nonexistent_text_col():
     df = pd.DataFrame({"a": [1, 2, 3]})
     result = csv_stats(df, "nonexistent")
     assert result["text_col_stats"] is None
+
+
+def test_csv_stats_empty_dataframe():
+    df = pd.DataFrame({"text": []})
+    result = csv_stats(df, "text")
+    assert result["row_count"] == 0
+    assert result["missing"] == {}
+    assert result["text_col_stats"] is None

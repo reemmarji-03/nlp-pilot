@@ -30,13 +30,15 @@ def txt_stats(text: str | None) -> dict:
 def csv_stats(df: pd.DataFrame, text_col: str | None) -> dict:
     """Return row count, missing value, duplicate, and text-column stats for a DataFrame."""
     missing = {}
+    row_count = len(df)
     for col, n in df.isnull().sum().items():
         if n > 0:
-            missing[col] = {"count": int(n), "pct": round(int(n) / len(df) * 100, 1)}
+            pct = round(int(n) / row_count * 100, 1) if row_count else 0.0
+            missing[col] = {"count": int(n), "pct": pct}
 
     text_col_stats = None
     if text_col and text_col in df.columns:
-        lengths = df[text_col].dropna().str.split().str.len()
+        lengths = df[text_col].dropna().astype(str).str.split().str.len()
         if len(lengths) > 0:
             text_col_stats = {
                 "avg_words": round(float(lengths.mean()), 1),
@@ -45,7 +47,7 @@ def csv_stats(df: pd.DataFrame, text_col: str | None) -> dict:
             }
 
     return {
-        "row_count": len(df),
+        "row_count": row_count,
         "col_count": len(df.columns),
         "duplicate_rows": int(df.duplicated().sum()),
         "missing": missing,

@@ -61,19 +61,19 @@ class SettingsManager:
                 cfg = self.data["ollama"]
                 if not cfg.get("url") or not cfg.get("model"):
                     return None
-                return ChatOllama(base_url=cfg["url"], model=cfg["model"])
+                return ChatOllama(base_url=cfg["url"], model=cfg["model"], temperature=0)
             elif provider == "openai":
                 from langchain_openai import ChatOpenAI
                 cfg = self.data["openai"]
                 if not cfg.get("api_key"):
                     return None
-                return ChatOpenAI(api_key=cfg["api_key"], model=cfg["model"], temperature=0.2)
+                return ChatOpenAI(api_key=cfg["api_key"], model=cfg["model"], temperature=0)
             elif provider == "anthropic":
                 from langchain_anthropic import ChatAnthropic
                 cfg = self.data["anthropic"]
                 if not cfg.get("api_key"):
                     return None
-                return ChatAnthropic(api_key=cfg["api_key"], model=cfg["model"], temperature=0.2)
+                return ChatAnthropic(api_key=cfg["api_key"], model=cfg["model"], temperature=0)
         except Exception:
             return None
         return None

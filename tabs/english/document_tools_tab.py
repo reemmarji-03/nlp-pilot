@@ -1,5 +1,6 @@
 import os
 import tempfile
+import json
 from collections import Counter
 
 import customtkinter as ctk
@@ -53,6 +54,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         # self.add_button(sidebar, "📚 Readability", self.readability)
         self.add_button(sidebar, "📈 Generate Charts", self.generate_charts)
         self.add_button(sidebar, "🧾 Export PDF Report", self.export_report)
+        self.add_button(sidebar, "Export JSON Report", self.export_report_json)
 
         # Output area
         output_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=10)
@@ -410,6 +412,47 @@ class DocumentToolsTab(ctk.CTkFrame):
             os.startfile(temp_pdf)
         except Exception:
             pass
+
+    def export_report_json(self):
+        if not self.require_text():
+            return
+
+        text = self.get_active_text()
+        ease, grade = enlp.readability_scores(text)
+        freq = enlp.word_frequency(
+            text,
+            stopword_set=self.state.stopwords,
+            top_n=50,
+            remove_stopwords=True,
+        )
+        payload = {
+            "file_name": self.state.file_name,
+            "mode": "csv" if enlp.is_csv_mode(self.state) else "document",
+            "csv_text_column": self.state.csv_text_column,
+            "character_count": len(text),
+            "readability": {
+                "flesch_reading_ease": ease,
+                "flesch_kincaid_grade": grade,
+            },
+            "word_frequency": [
+                {"term": term, "count": int(count)}
+                for term, count in freq
+            ],
+        }
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialfile="nlp_pilot_report.json",
+            title="Save JSON report",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not save JSON:\n{e}")
 
     def save_chart_image(self, fig, name):
         temp_dir = tempfile.gettempdir()

@@ -90,6 +90,7 @@ def build_X_from_state(
 def run_kmeans(
     X: np.ndarray,
     n_clusters: int = 3,
+    random_state: int = 42,
     cancel_event=None,
     progress_callback=None,
 ) -> ClusteringResult:
@@ -98,7 +99,7 @@ def run_kmeans(
         raise CancelledError()
     if progress_callback is not None:
         progress_callback(0.0, "Running K-Means…")
-    km = KMeans(n_clusters=n_clusters, n_init=10)
+    km = KMeans(n_clusters=n_clusters, n_init=10, random_state=random_state)
     km.fit(X)
     if progress_callback is not None:
         progress_callback(1.0, "Done.")

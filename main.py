@@ -2,6 +2,8 @@ import customtkinter as ctk
 from tkinter import ttk
 from tabs.english import EnglishTab
 from tabs.settings_window import SettingsWindow
+from core.reproducibility import set_global_seed
+from core.settings_manager import settings
 import lookups
 
 class NLPApp(ctk.CTk):
@@ -60,6 +62,7 @@ class NLPApp(ctk.CTk):
 
 
 if __name__ == "__main__":
-    print("✅ NLPApp started successfully")
+    set_global_seed(settings.get_seed())
+    print("NLPApp started successfully")
     app = NLPApp()
     app.mainloop()
