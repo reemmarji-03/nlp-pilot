@@ -234,23 +234,42 @@ class DocumentToolsTab(ctk.CTkFrame):
 
         model = self.get_sentiment_model()
         text = self.get_active_text()
-        chunk = text[:2000]
-        result = model(chunk)[0]
+        result = model(text[:2000])[0]
         label = result["label"]
         score = result["score"]
 
         explanation = {
             "POSITIVE": "Optimistic or confident tone.",
             "NEGATIVE": "Critical or dissatisfied tone.",
-            "NEUTRAL": "Balanced, factual tone."
+            "NEUTRAL": "Balanced, factual tone.",
         }.get(label, "Unclear tone detected.")
 
-        self.show_textbox()
-        self.output.delete("1.0", "end")
-        self.output.insert("end", f"\n💬 Sentiment Analysis\n", "left")
-        self.output.insert("end", "-" * 40 + "\n", "left")
-        self.output.insert("end", f"Label: {label}\nScore: {score:.3f}\n", "left")
-        self.output.insert("end", f"Interpretation: {explanation}\n", "left")
+        if score >= 0.7:
+            bar_color = "#4CAF50"
+        elif score >= 0.4:
+            bar_color = "#FF9800"
+        else:
+            bar_color = "#F44336"
+
+        fig, ax = plt.subplots(figsize=(6, 2.2))
+        fig.patch.set_facecolor("#1a1a1a")
+        ax.set_facecolor("#1a1a1a")
+        fig.suptitle(
+            f"{label}  ({score:.3f})  —  {explanation}",
+            color="white",
+            fontsize=11,
+            y=0.98,
+        )
+        ax.barh([""], [score], color=bar_color, height=0.4)
+        ax.set_xlim(0, 1)
+        ax.set_xticks([0, 0.5, 1.0])
+        ax.set_xticklabels(["0", "0.5", "1.0"], color="#aaaaaa")
+        ax.set_title("Confidence", color="#aaaaaa", fontsize=10)
+        ax.tick_params(colors="#aaaaaa", left=False, labelleft=False)
+        for spine in ax.spines.values():
+            spine.set_color("#333333")
+        plt.tight_layout()
+        self.show_chart(fig)
 
     def named_entities(self):
         if not self.require_text():
