@@ -50,7 +50,7 @@ def test_csv_stats_duplicates():
 def test_csv_stats_text_col_stats():
     df = pd.DataFrame({"text": ["one two three", "four five", "six"]})
     result = csv_stats(df, "text")
-    assert result["text_col_stats"]["avg_words"] == pytest.approx(2.0, abs=0.1)
+    assert result["text_col_stats"]["avg_words"] == pytest.approx(2.0, rel=1e-6)
     assert result["text_col_stats"]["min_words"] == 1
     assert result["text_col_stats"]["max_words"] == 3
 
@@ -58,4 +58,15 @@ def test_csv_stats_text_col_stats():
 def test_csv_stats_no_text_col():
     df = pd.DataFrame({"a": [1, 2, 3]})
     result = csv_stats(df, None)
+    assert result["text_col_stats"] is None
+
+
+def test_txt_stats_unique_word_deduplication():
+    result = txt_stats("Good good good.")
+    assert result["unique_word_count"] == 1
+
+
+def test_csv_stats_nonexistent_text_col():
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    result = csv_stats(df, "nonexistent")
     assert result["text_col_stats"] is None

@@ -2,7 +2,8 @@ import re
 import pandas as pd
 
 
-def txt_stats(text: str) -> dict:
+def txt_stats(text: str | None) -> dict:
+    """Return character, word, sentence, and vocabulary stats for a text string."""
     if not text:
         return {
             "char_count": 0,
@@ -16,16 +17,18 @@ def txt_stats(text: str) -> dict:
     word_count = len(words)
     sentence_count = len(sentences)
     avg_sentence_len = round(word_count / sentence_count, 1) if sentence_count > 0 else 0.0
+    clean = [re.sub(r"[^\w'-]", "", w).lower() for w in words]
     return {
         "char_count": len(text),
         "word_count": word_count,
         "sentence_count": sentence_count,
         "avg_sentence_len": avg_sentence_len,
-        "unique_word_count": len(set(w.lower() for w in words)),
+        "unique_word_count": len({w for w in clean if w}),
     }
 
 
 def csv_stats(df: pd.DataFrame, text_col: str | None) -> dict:
+    """Return row count, missing value, duplicate, and text-column stats for a DataFrame."""
     missing = {}
     for col, n in df.isnull().sum().items():
         if n > 0:
