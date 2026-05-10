@@ -300,12 +300,10 @@ class DocumentToolsTab(ctk.CTkFrame):
         freq = enlp.word_frequency(
             text,
             stopword_set=self.state.stopwords,
-            top_n=10,
-            remove_stopwords=True
+            top_n=20,
+            remove_stopwords=True,
         )
-        fig = enlp.build_word_freq_figure(freq, title="Top 10 Words")
-
-        # Show inside output area
+        fig = enlp.build_word_freq_figure(freq, title="Top 20 Words", dark=True)
         self.show_chart(fig)
 
 

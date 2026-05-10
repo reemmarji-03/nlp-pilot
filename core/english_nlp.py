@@ -189,27 +189,40 @@ def merge_ner_entities(hf_ents):
 
 
 # Charts
-def build_word_freq_figure(freq_pairs, title="Top Words"):
+def build_word_freq_figure(freq_pairs, title="Top Words", dark=False):
     """
     Build and return a matplotlib Figure for a horizontal bar chart
     of word frequencies.
 
     freq_pairs: list of (word, count)
+    dark: apply dark theme (used for on-screen display)
     """
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(6, 5))
+
+    bg = "#1a1a1a" if dark else "white"
+    fg = "white" if dark else "black"
+    muted = "#aaaaaa" if dark else "#444444"
+    bar_color = "#6ea8fe" if dark else "#4472C4"
+    spine_color = "#333333" if dark else "#cccccc"
+
+    fig.patch.set_facecolor(bg)
+    ax.set_facecolor(bg)
 
     if not freq_pairs:
-        ax.text(0.5, 0.5, "No data", ha="center", va="center")
+        ax.text(0.5, 0.5, "No data", ha="center", va="center", color=fg)
         ax.set_axis_off()
         return fig
 
     labels, values = zip(*freq_pairs)
-    ax.barh(labels, values)
-    ax.set_xlabel("Count")
-    ax.set_ylabel("Word")
-    ax.set_title(title)
+    bars = ax.barh(labels, values, color=bar_color)
+    ax.bar_label(bars, padding=3, color=fg, fontsize=9)
+    ax.invert_yaxis()
+    ax.set_xlabel("Count", color=muted)
+    ax.set_title(title, color=fg, fontsize=13)
+    ax.tick_params(colors=muted)
+    for spine in ax.spines.values():
+        spine.set_color(spine_color)
     fig.tight_layout()
-
     return fig
 
 
