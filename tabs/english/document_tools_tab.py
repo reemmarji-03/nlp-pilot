@@ -17,6 +17,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 
 from core import english_nlp as enlp
 from core.english_state import EnglishState
+from core.data_quality import csv_stats, txt_stats
 
 class DocumentToolsTab(ctk.CTkFrame):
     def __init__(self, parent, state: EnglishState, on_state_changed):
@@ -48,6 +49,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         ).pack(pady=(15, 20))
 
         self.add_button(sidebar, "📂 Upload File", self.upload_file)
+        self.add_button(sidebar, "Data Quality", self.data_quality)
         self.add_button(sidebar, "🔠 Word Frequency", self.word_freq)
         self.add_button(sidebar, "💬 Sentiment", self.sentiment)
         self.add_button(sidebar, "🧬 Named Entities", self.named_entities)
@@ -229,6 +231,57 @@ class DocumentToolsTab(ctk.CTkFrame):
         self.output.insert("end", "-" * 40 + "\n", "left")
         for w, c in freq:
             self.output.insert("end", f"{w:<15}{c:>5}\n", "left")
+
+    def data_quality(self):
+        if not self.require_text():
+            return
+
+        self.show_textbox()
+        self.output.delete("1.0", "end")
+        self.output.insert("end", "Data Quality\n", "left")
+        self.output.insert("end", "-" * 40 + "\n", "left")
+
+        if enlp.is_csv_mode(self.state):
+            stats = csv_stats(self.state.df, self.state.csv_text_column)
+            self.output.insert("end", f"File: {self.state.file_name}\n", "left")
+            self.output.insert("end", f"Rows: {stats['row_count']:,}\n", "left")
+            self.output.insert("end", f"Columns: {stats['col_count']}\n", "left")
+            self.output.insert("end", f"Duplicate rows: {stats['duplicate_rows']}\n", "left")
+
+            if stats["missing"]:
+                self.output.insert("end", "\nMissing values:\n", "left")
+                for col, info in stats["missing"].items():
+                    self.output.insert(
+                        "end",
+                        f"  {col}: {info['count']} ({info['pct']:.1f}%)\n",
+                        "left",
+                    )
+            else:
+                self.output.insert("end", "Missing values: none\n", "left")
+
+            if stats["text_col_stats"]:
+                tcs = stats["text_col_stats"]
+                self.output.insert(
+                    "end",
+                    f"\nText column: {self.state.csv_text_column}\n"
+                    f"Avg words per row: {tcs['avg_words']:.1f}\n"
+                    f"Min words: {tcs['min_words']}\n"
+                    f"Max words: {tcs['max_words']}\n",
+                    "left",
+                )
+            return
+
+        stats = txt_stats(self.state.text)
+        self.output.insert("end", f"File: {self.state.file_name}\n", "left")
+        self.output.insert("end", f"Characters: {stats['char_count']:,}\n", "left")
+        self.output.insert("end", f"Words: {stats['word_count']:,}\n", "left")
+        self.output.insert("end", f"Sentences: {stats['sentence_count']:,}\n", "left")
+        self.output.insert(
+            "end",
+            f"Avg sentence length: {stats['avg_sentence_len']:.1f} words\n",
+            "left",
+        )
+        self.output.insert("end", f"Unique words: {stats['unique_word_count']:,}\n", "left")
 
     def sentiment(self):
         if not self.require_text():

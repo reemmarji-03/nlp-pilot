@@ -60,6 +60,10 @@ class NLPApp(ctk.CTk):
             self._settings_win.lift()
             self._settings_win.focus()
 
+    def on_settings_changed(self):
+        if hasattr(self, "english_tab"):
+            self.english_tab.on_settings_changed()
+
 
 if __name__ == "__main__":
     set_global_seed(settings.get_seed())

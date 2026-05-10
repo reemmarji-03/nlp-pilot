@@ -13,7 +13,7 @@ from core.reproducibility import set_global_seed
 class SettingsWindow(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("NLP Pilot — Settings")
+        self.title("Settings")
         self.geometry("520x600")
         self.resizable(False, False)
         self.grab_set()
@@ -27,33 +27,22 @@ class SettingsWindow(ctk.CTkToplevel):
     def _build_ui(self) -> None:
         ctk.CTkLabel(
             self,
-            text="NLP Pilot — Settings",
+            text="Settings",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color="#6ea8fe",
         ).pack(pady=(16, 8))
-
-        ctk.CTkLabel(self, text="Active provider:", text_color="#cccccc").pack(
-            anchor="w", padx=20
-        )
-        provider_row = ctk.CTkFrame(self, fg_color="transparent")
-        provider_row.pack(fill="x", padx=20, pady=(4, 12))
-
-        self._provider_var = ctk.StringVar(
-            value=self._data.get("active_provider", "ollama")
-        )
-        for p in ("ollama", "openai", "anthropic"):
-            ctk.CTkRadioButton(
-                provider_row,
-                text=p.capitalize(),
-                variable=self._provider_var,
-                value=p,
-            ).pack(side="left", padx=(0, 16))
 
         self._tabs = ctk.CTkTabview(self, height=290)
         self._tabs.pack(fill="x", padx=20, pady=(0, 8))
         self._build_ollama_tab(self._tabs.add("Ollama"))
         self._build_openai_tab(self._tabs.add("OpenAI"))
         self._build_anthropic_tab(self._tabs.add("Anthropic"))
+        active_tab = {
+            "ollama": "Ollama",
+            "openai": "OpenAI",
+            "anthropic": "Anthropic",
+        }.get(self._data.get("active_provider", "ollama"), "Ollama")
+        self._tabs.set(active_tab)
 
         seed_row = ctk.CTkFrame(self, fg_color="transparent")
         seed_row.pack(fill="x", padx=20, pady=(0, 16))
@@ -302,7 +291,11 @@ class SettingsWindow(ctk.CTkToplevel):
     # ── Save ───────────────────────────────────────────────────────
 
     def _save(self) -> None:
-        settings.data["active_provider"] = self._provider_var.get()
+        settings.data["active_provider"] = {
+            "Ollama": "ollama",
+            "OpenAI": "openai",
+            "Anthropic": "anthropic",
+        }.get(self._tabs.get(), "ollama")
         settings.data["ollama"]["url"] = self._ollama_url.get()
         settings.data["ollama"]["model"] = self._ollama_model.get()
         settings.data["openai"]["api_key"] = self._openai_key.get()
@@ -315,4 +308,6 @@ class SettingsWindow(ctk.CTkToplevel):
             settings.data["random_seed"] = 42
         settings.save()
         set_global_seed(settings.get_seed())
+        if hasattr(self.master, "on_settings_changed"):
+            self.master.on_settings_changed()
         self.destroy()
