@@ -279,21 +279,39 @@ class DocumentToolsTab(ctk.CTkFrame):
         text = self.get_active_text()
         ents_raw = model(text[:1000])
         cleaned = enlp.merge_ner_entities(ents_raw)
-
         label_counts = Counter(lbl for _, lbl, _ in cleaned)
 
-        self.show_textbox()
-        self.output.delete("1.0", "end")
-        self.output.insert("end", "\n🧬 Named Entities\n", "left")
-        self.output.insert("end", "-" * 40 + "\n", "left")
+        if not label_counts:
+            self.show_textbox()
+            self.output.delete("1.0", "end")
+            self.output.insert("end", "\n🧬 Named Entities\n" + "-" * 40 + "\nNo entities found.\n", "left")
+            return
 
-        self.output.insert("end", "Summary by label:\n", "left")
+        lines = ["\n🧬 Named Entities", "-" * 40, "Summary by label:"]
         for lbl, cnt in label_counts.items():
-            self.output.insert("end", f"{lbl:<10}: {cnt}\n", "left")
-        self.output.insert("end", "-" * 40 + "\n", "left")
+            lines.append(f"{lbl:<10}: {cnt}")
+        lines.append("-" * 40)
+        for word, lbl, score in cleaned[:50]:
+            lines.append(f"{word:<25}{lbl:<10}{score:.2f}")
+        text_content = "\n".join(lines)
 
-        for word, label, score in cleaned[:50]:
-            self.output.insert("end", f"{word:<25}{label:<10}{score:.2f}\n", "left")
+        types = list(label_counts.keys())
+        counts = [label_counts[t] for t in types]
+        fig_h = max(2.0, len(types) * 0.5 + 1.0)
+        fig, ax = plt.subplots(figsize=(6, fig_h))
+        fig.patch.set_facecolor("#1a1a1a")
+        ax.set_facecolor("#1a1a1a")
+        bars = ax.barh(types, counts, color="#6ea8fe")
+        ax.bar_label(bars, padding=3, color="white", fontsize=9)
+        ax.invert_yaxis()
+        ax.set_xlabel("Count", color="#aaaaaa")
+        ax.set_title("Entity Types", color="white", fontsize=12)
+        ax.tick_params(colors="#aaaaaa")
+        for spine in ax.spines.values():
+            spine.set_color("#333333")
+        fig.tight_layout()
+
+        self.show_text_and_chart(text_content, fig)
 
     def readability(self):
         if not self.require_text():
@@ -418,6 +436,27 @@ class DocumentToolsTab(ctk.CTkFrame):
         """Replace the textbox with a Matplotlib chart."""
         for w in self.output_container.winfo_children():
             w.destroy()
+
+        canvas = FigureCanvasTkAgg(fig, master=self.output_container)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        plt.close(fig)
+
+    def show_text_and_chart(self, text_content: str, fig):
+        """Show a text widget above a matplotlib chart in output_container."""
+        for w in self.output_container.winfo_children():
+            w.destroy()
+
+        self.output = ctk.CTkTextbox(
+            self.output_container,
+            fg_color="#1a1a1a",
+            text_color="white",
+            font=("Consolas", 13),
+            wrap="word",
+            height=200,
+        )
+        self.output.pack(fill="x", expand=False)
+        self.output.insert("end", text_content, "left")
 
         canvas = FigureCanvasTkAgg(fig, master=self.output_container)
         canvas.draw()
