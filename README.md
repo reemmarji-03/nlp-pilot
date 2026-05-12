@@ -17,6 +17,8 @@ message if no usable provider is configured.
 
 ## Installation
 
+For a plain Python environment, install the full pip dependency set:
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -25,12 +27,22 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Conda users can create an equivalent environment with:
+Conda users should prefer `environment.yml`. It installs compiled scientific
+packages from `conda-forge` and then installs the smaller pip-only layer from
+`requirements-conda.txt`:
 
 ```powershell
 conda env create -f environment.yml
 conda activate nlp-pilot
 python main.py
+```
+
+The dependency files are checked in CI with both pip and micromamba. Locally,
+you can verify an environment with:
+
+```powershell
+python -m pip check
+pytest
 ```
 
 Some models are downloaded lazily on first use by Hugging Face, NLTK, or

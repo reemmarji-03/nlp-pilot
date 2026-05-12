@@ -2,7 +2,18 @@ name: nlp-pilot
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
+  - python=3.11.*
   - pip
+  - bertopic>=0.16,<1
+  - nltk>=3.8,<4
+  - spacy>=3.7,<4
+  - transformers>=4.40,<5
+  - pdfplumber>=0.11,<1
+  - scikit-learn>=1.4,<2
+  - matplotlib>=3.8,<4
+  - reportlab>=4.0,<5
+  - pytorch>=2.2,<3
+  - pandas>=2.2,<3
+  - faiss-cpu>=1.8,<2
   - pip:
-      - -r requirements.txt
+      - -r requirements-conda.txt

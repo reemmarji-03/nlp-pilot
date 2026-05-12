@@ -142,7 +142,27 @@ class DocumentToolsTab(ctk.CTkFrame):
 
     def run_sentiment_model(self, text: str) -> dict:
         model = self.get_sentiment_model()
-        return model(text, truncation=True, max_length=512)[0]
+        return model(self.truncate_for_pipeline(model, text))[0]
+
+    def truncate_for_pipeline(self, model, text: str, max_length: int = 512) -> str:
+        tokenizer = getattr(model, "tokenizer", None)
+        if tokenizer is None:
+            return text[:2000]
+
+        tokenizer_limit = getattr(tokenizer, "model_max_length", max_length)
+        if isinstance(tokenizer_limit, int) and tokenizer_limit > 0:
+            max_length = min(max_length, tokenizer_limit)
+
+        encoded = tokenizer(
+            text,
+            truncation=True,
+            max_length=max_length,
+            add_special_tokens=True,
+        )
+        input_ids = encoded.get("input_ids", [])
+        if input_ids and isinstance(input_ids[0], list):
+            input_ids = input_ids[0]
+        return tokenizer.decode(input_ids, skip_special_tokens=True)
 
     # ---------------- Logic ----------------
     def upload_file(self):
@@ -322,7 +342,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         model = self.get_ner_model()
         text = self.get_active_text()
         try:
-            ents_raw = model(text, truncation=True, max_length=512)
+            ents_raw = model(self.truncate_for_pipeline(model, text))
         except Exception as exc:
             messagebox.showerror("NER error", f"Could not extract named entities:\n{exc}")
             return
