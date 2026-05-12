@@ -83,6 +83,17 @@ class RAGTab(ctk.CTkFrame):
         self.entry.configure(state="disabled")
 
     def on_show(self):
+        if enlp.is_csv_mode(self.state):
+            self.db = None
+            self.rag_chain = None
+            self._index_signature = None
+            self._chain_signature = None
+            self._set_status("RAG works with text documents only.")
+            self._set_chat_ready(False)
+            self.clear_chat("RAG is available for text documents only. Load a TXT, PDF, or DOCX file in Document Tools.")
+            self.index_log.delete("1.0", "end")
+            self.index_log.insert("end", "CSV input detected. RAG indexing is disabled for CSV rows.\n")
+            return
         self._build_index(force=False)
 
     def invalidate_index(self):
@@ -100,6 +111,8 @@ class RAGTab(ctk.CTkFrame):
             self._ensure_chain_current()
 
     def _active_docs(self) -> list[str]:
+        if enlp.is_csv_mode(self.state):
+            return []
         return enlp.get_preprocessed_documents_from_state(self.state)
 
     def _document_signature(self):
@@ -188,6 +201,21 @@ class RAGTab(ctk.CTkFrame):
             pass
 
     def _build_index(self, force: bool = False):
+        if enlp.is_csv_mode(self.state):
+            if force:
+                messagebox.showwarning(
+                    "RAG unavailable",
+                    "RAG only works with text documents. Load a TXT, PDF, or DOCX file first.",
+                )
+            self.db = None
+            self.rag_chain = None
+            self._index_signature = None
+            self._chain_signature = None
+            self._set_status("RAG works with text documents only.")
+            self._set_chat_ready(False)
+            self.clear_chat("RAG is available for text documents only. Load a TXT, PDF, or DOCX file in Document Tools.")
+            return
+
         docs = self._active_docs()
         signature = self._document_signature()
         if not docs or signature is None:

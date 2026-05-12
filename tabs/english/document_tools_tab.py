@@ -18,6 +18,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from core import english_nlp as enlp
 from core.english_state import EnglishState
 from core.data_quality import csv_stats, txt_stats
+from core.run_metadata import run_metadata
 
 class DocumentToolsTab(ctk.CTkFrame):
     def __init__(self, parent, state: EnglishState, on_state_changed):
@@ -55,8 +56,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         self.add_button(sidebar, "🧬 Named Entities", self.named_entities)
         # self.add_button(sidebar, "📚 Readability", self.readability)
         self.add_button(sidebar, "📈 Generate Charts", self.generate_charts)
-        self.add_button(sidebar, "🧾 Export PDF Report", self.export_report)
-        self.add_button(sidebar, "Export JSON Report", self.export_report_json)
+        self.add_button(sidebar, "Export Report", self.open_export_report_dialog)
 
         # Output area
         output_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=10)
@@ -139,6 +139,10 @@ class DocumentToolsTab(ctk.CTkFrame):
         """
         docs = enlp.get_preprocessed_documents_from_state(self.state)
         return "\n".join(docs)
+
+    def run_sentiment_model(self, text: str) -> dict:
+        model = self.get_sentiment_model()
+        return model(text, truncation=True, max_length=512)[0]
 
     # ---------------- Logic ----------------
     def upload_file(self):
@@ -287,9 +291,12 @@ class DocumentToolsTab(ctk.CTkFrame):
         if not self.require_text():
             return
 
-        model = self.get_sentiment_model()
         text = self.get_active_text()
-        result = model(text[:2000])[0]
+        try:
+            result = self.run_sentiment_model(text)
+        except Exception as exc:
+            messagebox.showerror("Sentiment error", f"Could not analyze sentiment:\n{exc}")
+            return
         label = result["label"]
         score = result["score"]
 
@@ -299,32 +306,14 @@ class DocumentToolsTab(ctk.CTkFrame):
             "NEUTRAL": "Balanced, factual tone.",
         }.get(label, "Unclear tone detected.")
 
-        if score >= 0.7:
-            bar_color = "#4CAF50"
-        elif score >= 0.4:
-            bar_color = "#FF9800"
-        else:
-            bar_color = "#F44336"
+        self.show_textbox()
+        self.output.delete("1.0", "end")
+        self.output.insert("end", "\nSentiment Analysis\n", "left")
+        self.output.insert("end", "-" * 40 + "\n", "left")
+        self.output.insert("end", f"Label: {label}\n", "left")
+        self.output.insert("end", f"Confidence: {score:.3f}\n", "left")
+        self.output.insert("end", f"Interpretation: {explanation}\n", "left")
 
-        fig, ax = plt.subplots(figsize=(6, 2.2))
-        fig.patch.set_facecolor("#1a1a1a")
-        ax.set_facecolor("#1a1a1a")
-        fig.suptitle(
-            f"{label}  ({score:.3f})  —  {explanation}",
-            color="white",
-            fontsize=11,
-            y=0.98,
-        )
-        ax.barh([""], [score], color=bar_color, height=0.4)
-        ax.set_xlim(0, 1)
-        ax.set_xticks([0, 0.5, 1.0])
-        ax.set_xticklabels(["0", "0.5", "1.0"], color="#aaaaaa")
-        ax.set_title("Confidence", color="#aaaaaa", fontsize=10)
-        ax.tick_params(colors="#aaaaaa", left=False, labelleft=False)
-        for spine in ax.spines.values():
-            spine.set_color("#333333")
-        plt.tight_layout()
-        self.show_chart(fig)
 
     def named_entities(self):
         if not self.require_text():
@@ -332,7 +321,11 @@ class DocumentToolsTab(ctk.CTkFrame):
 
         model = self.get_ner_model()
         text = self.get_active_text()
-        ents_raw = model(text[:1000])
+        try:
+            ents_raw = model(text, truncation=True, max_length=512)
+        except Exception as exc:
+            messagebox.showerror("NER error", f"Could not extract named entities:\n{exc}")
+            return
         cleaned = enlp.merge_ner_entities(ents_raw)
         label_counts = Counter(lbl for _, lbl, _ in cleaned)
 
@@ -350,23 +343,9 @@ class DocumentToolsTab(ctk.CTkFrame):
             lines.append(f"{word:<25}{lbl:<10}{score:.2f}")
         text_content = "\n".join(lines)
 
-        types = list(label_counts.keys())
-        counts = [label_counts[t] for t in types]
-        fig_h = max(2.0, len(types) * 0.5 + 1.0)
-        fig, ax = plt.subplots(figsize=(6, fig_h))
-        fig.patch.set_facecolor("#1a1a1a")
-        ax.set_facecolor("#1a1a1a")
-        bars = ax.barh(types, counts, color="#6ea8fe")
-        ax.bar_label(bars, padding=3, color="white", fontsize=9)
-        ax.invert_yaxis()
-        ax.set_xlabel("Count", color="#aaaaaa")
-        ax.set_title("Entity Types", color="white", fontsize=12)
-        ax.tick_params(colors="#aaaaaa")
-        for spine in ax.spines.values():
-            spine.set_color("#333333")
-        fig.tight_layout()
-
-        self.show_text_and_chart(text_content, fig)
+        self.show_textbox()
+        self.output.delete("1.0", "end")
+        self.output.insert("end", text_content, "left")
 
     def readability(self):
         if not self.require_text():
@@ -398,15 +377,27 @@ class DocumentToolsTab(ctk.CTkFrame):
         fig = enlp.build_word_freq_figure(freq, title="Top 20 Words", dark=True)
         self.show_chart(fig)
 
-
-    def export_report(self):
+    def open_export_report_dialog(self):
         if not self.require_text():
             return
+        ReportExportDialog(self)
 
-        model = self.get_sentiment_model()
+    def export_report(self, path: str | None = None):
+        if not self.require_text():
+            return
+        if path is None:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+                initialfile="nlp_pilot_report.pdf",
+                title="Save PDF report",
+            )
+        if not path:
+            return
+
         text = self.get_active_text()
 
-        sentiment = model(text[:2000])[0]
+        sentiment = self.run_sentiment_model(text)
         _, grade = enlp.readability_scores(text)
 
         freq = enlp.word_frequency(
@@ -420,8 +411,7 @@ class DocumentToolsTab(ctk.CTkFrame):
         chart_path = self.save_chart_image(fig, "freq_chart.png")
         plt.close(fig)
 
-        temp_pdf = os.path.join(tempfile.gettempdir(), "NLP_Report.pdf")
-        doc = SimpleDocTemplate(temp_pdf, pagesize=A4)
+        doc = SimpleDocTemplate(path, pagesize=A4)
         styles = getSampleStyleSheet()
         story = []
 
@@ -460,13 +450,9 @@ class DocumentToolsTab(ctk.CTkFrame):
         ))
 
         doc.build(story)
-        messagebox.showinfo("Report Generated", f"✅ Report saved to:\n{temp_pdf}")
-        try:
-            os.startfile(temp_pdf)
-        except Exception:
-            pass
+        messagebox.showinfo("Report Generated", f"Report saved to:\n{path}")
 
-    def export_report_json(self):
+    def export_report_json(self, path: str | None = None):
         if not self.require_text():
             return
 
@@ -479,6 +465,13 @@ class DocumentToolsTab(ctk.CTkFrame):
             remove_stopwords=True,
         )
         payload = {
+            "metadata": run_metadata(
+                {
+                    "file_name": self.state.file_name,
+                    "mode": "csv" if enlp.is_csv_mode(self.state) else "document",
+                    "csv_text_column": self.state.csv_text_column,
+                }
+            ),
             "file_name": self.state.file_name,
             "mode": "csv" if enlp.is_csv_mode(self.state) else "document",
             "csv_text_column": self.state.csv_text_column,
@@ -493,17 +486,19 @@ class DocumentToolsTab(ctk.CTkFrame):
             ],
         }
 
-        path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            initialfile="nlp_pilot_report.json",
-            title="Save JSON report",
-        )
+        if path is None:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                initialfile="nlp_pilot_report.json",
+                title="Save JSON report",
+            )
         if not path:
             return
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
+            messagebox.showinfo("Report Generated", f"Report saved to:\n{path}")
         except Exception as e:
             messagebox.showerror("Error", f"Could not save JSON:\n{e}")
 
@@ -559,6 +554,107 @@ class DocumentToolsTab(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="both", expand=True)
         plt.close(fig)
 
+
+
+class ReportExportDialog(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Export Report")
+        self.geometry("430x230")
+        self.resizable(False, False)
+        self.grab_set()
+
+        ctk.CTkLabel(
+            self,
+            text="Export document report",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#6ea8fe",
+        ).pack(anchor="w", padx=16, pady=(16, 8))
+
+        ctk.CTkLabel(self, text="Format:").pack(anchor="w", padx=16, pady=(4, 2))
+        self.format_combo = ctk.CTkComboBox(
+            self,
+            values=["PDF", "JSON"],
+            state="readonly",
+            command=lambda _: self._sync_default_path(),
+        )
+        self.format_combo.set("PDF")
+        self.format_combo.pack(fill="x", padx=16, pady=(0, 8))
+
+        ctk.CTkLabel(self, text="Save to:").pack(anchor="w", padx=16, pady=(4, 2))
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(0, 14))
+        row.columnconfigure(0, weight=1)
+        self.path_entry = ctk.CTkEntry(row)
+        self.path_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            row,
+            text="Browse",
+            width=86,
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self._browse,
+        ).grid(row=0, column=1)
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=16, pady=(2, 16))
+        ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            fg_color="#555555",
+            hover_color="#444444",
+            command=self.destroy,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            buttons,
+            text="Export",
+            fg_color="#0078ff",
+            hover_color="#005dc1",
+            command=self._export,
+        ).pack(side="right")
+
+        self._sync_default_path()
+
+    def _format(self) -> str:
+        return self.format_combo.get().lower()
+
+    def _sync_default_path(self):
+        current = self.path_entry.get().strip() if hasattr(self, "path_entry") else ""
+        ext = ".pdf" if self._format() == "pdf" else ".json"
+        if current and os.path.basename(current).split(".")[0] != "nlp_pilot_report":
+            return
+        self.path_entry.delete(0, "end")
+        self.path_entry.insert(0, os.path.join(os.getcwd(), f"nlp_pilot_report{ext}"))
+
+    def _browse(self):
+        fmt = self._format()
+        ext = ".pdf" if fmt == "pdf" else ".json"
+        filetypes = [("PDF files", "*.pdf")] if fmt == "pdf" else [("JSON files", "*.json")]
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            defaultextension=ext,
+            filetypes=filetypes + [("All files", "*.*")],
+            initialfile=f"nlp_pilot_report{ext}",
+            title="Choose export location",
+        )
+        if path:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, path)
+
+    def _export(self):
+        path = self.path_entry.get().strip()
+        if not path:
+            messagebox.showwarning("Missing location", "Choose where to save the report.", parent=self)
+            return
+        fmt = self._format()
+        try:
+            if fmt == "pdf":
+                self.parent.export_report(path)
+            else:
+                self.parent.export_report_json(path)
+        finally:
+            self.destroy()
 
 
 class ColumnChoiceDialog(ctk.CTkToplevel):

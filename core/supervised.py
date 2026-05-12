@@ -21,6 +21,7 @@ from sklearn.svm import LinearSVC
 from core import english_nlp as enlp
 from core import vectorization as vec
 from core.english_state import EnglishState
+from core.model_registry import get_registered_models, registered_model_names
 
 
 TaskType = Literal["classification", "regression"]
@@ -143,7 +144,20 @@ def _make_classification_model(model_name: str, random_state: int = 42):
             ),
             model_name,
         )
+    registered = get_registered_models("classification")
+    if model_name in registered:
+        return registered[model_name](random_state=random_state), model_name
     raise ValueError(f"Unknown classification model: {model_name}")
+
+
+def _apply_model_params(model, params: Optional[Dict[str, Any]] = None):
+    if not params:
+        return model
+    supported = model.get_params()
+    updates = {k: v for k, v in params.items() if k in supported}
+    if updates:
+        model.set_params(**updates)
+    return model
 
 
 def _make_regression_model(model_name: str, random_state: int = 42):
@@ -160,31 +174,55 @@ def _make_regression_model(model_name: str, random_state: int = 42):
             ),
             model_name,
         )
+    registered = get_registered_models("regression")
+    if model_name in registered:
+        return registered[model_name](random_state=random_state), model_name
     raise ValueError(f"Unknown regression model: {model_name}")
 
 
-def _candidate_models(task_type: TaskType, random_state: int):
+def _candidate_models(
+    task_type: TaskType,
+    random_state: int,
+    model_params: Optional[Dict[str, Any]] = None,
+):
     if task_type == "classification":
-        names = ["Logistic Regression", "Linear SVM", "Random Forest"]
+        names = available_model_names("classification", include_auto=False)
         return [
-            (name, model)
+            (name, _apply_model_params(model, model_params))
             for model, name in (
                 _make_classification_model(n, random_state) for n in names
             )
         ]
-    names = ["Linear Regression", "Ridge Regression", "Random Forest Regressor"]
+    names = available_model_names("regression", include_auto=False)
     return [
-        (name, model)
+        (name, _apply_model_params(model, model_params))
         for model, name in (
             _make_regression_model(n, random_state) for n in names
         )
     ]
 
 
-def _single_model(task_type: TaskType, model_name: str, random_state: int):
+def _single_model(
+    task_type: TaskType,
+    model_name: str,
+    random_state: int,
+    model_params: Optional[Dict[str, Any]] = None,
+):
     if task_type == "classification":
-        return _make_classification_model(model_name, random_state)
-    return _make_regression_model(model_name, random_state)
+        model, name = _make_classification_model(model_name, random_state)
+    else:
+        model, name = _make_regression_model(model_name, random_state)
+    return _apply_model_params(model, model_params), name
+
+
+def available_model_names(task_type: TaskType, include_auto: bool = True) -> list[str]:
+    if task_type == "classification":
+        names = ["Logistic Regression", "Linear SVM", "Random Forest"]
+        names.extend(registered_model_names("classification"))
+    else:
+        names = ["Linear Regression", "Ridge Regression", "Random Forest Regressor"]
+        names.extend(registered_model_names("regression"))
+    return (["Auto"] if include_auto else []) + names
 
 
 def _stratify_or_none(y: np.ndarray):
@@ -270,8 +308,20 @@ def _select_candidate(
     task_type: TaskType,
     random_state: int,
     cv_folds: int,
+    auto_subset_size: Optional[int] = None,
     progress_callback=None,
 ):
+    subset_used = None
+    if auto_subset_size and auto_subset_size > 0 and len(y_train) > auto_subset_size:
+        rng = np.random.default_rng(random_state)
+        idx = rng.choice(len(y_train), size=auto_subset_size, replace=False)
+        if isinstance(X_train, list):
+            X_train = [X_train[int(i)] for i in idx]
+        else:
+            X_train = X_train[idx]
+        y_train = y_train[idx]
+        subset_used = int(auto_subset_size)
+
     cv = _cv_for(task_type, y_train, random_state, cv_folds)
     scoring = _score_name(task_type)
     results: List[Tuple[str, Any, float]] = []
@@ -294,7 +344,15 @@ def _select_candidate(
     if not results:
         raise RuntimeError(f"All candidate {task_type} models failed during Auto mode.")
     best_name, best_estimator, _ = max(results, key=lambda item: item[2])
-    return best_name, best_estimator, {name: score for name, _, score in results}, selection_strategy
+    details = {
+        "candidate_scores": {name: score for name, _, score in results},
+        "selection_strategy": selection_strategy,
+        "scoring": scoring,
+        "requested_cv_folds": cv_folds,
+        "effective_cv_folds": cv.get_n_splits() if cv is not None else None,
+        "auto_subset_size": subset_used,
+    }
+    return best_name, best_estimator, details
 
 
 def train_supervised_model(
@@ -305,6 +363,8 @@ def train_supervised_model(
     test_size: float = 0.2,
     random_state: int = 42,
     cv_folds: int = 5,
+    auto_subset_size: Optional[int] = None,
+    model_params: Optional[Dict[str, Any]] = None,
     cancel_event=None,
     progress_callback=None,
 ) -> SupervisedResult:
@@ -324,24 +384,43 @@ def train_supervised_model(
         raise CancelledError()
 
     if model_name == "Auto":
-        name, estimator, scores, strategy = _select_candidate(
-            _candidate_models(task_type, random_state),
+        name, estimator, scores = _select_candidate(
+            _candidate_models(task_type, random_state, model_params),
             X_train,
             y_train,
             task_type,
             random_state,
             cv_folds,
+            auto_subset_size,
             progress_callback,
         )
+        candidate_scores = scores["candidate_scores"]
+        strategy = scores["selection_strategy"]
     else:
-        estimator, name = _single_model(task_type, model_name, random_state)
-        scores = None
+        estimator, name = _single_model(task_type, model_name, random_state, model_params)
+        candidate_scores = None
         strategy = None
 
     estimator.fit(X_train, y_train)
     if progress_callback is not None:
         progress_callback(1.0, "Done.")
-    return _evaluate_predictions(estimator, X_test, y_test, task_type, name, scores, strategy)
+    result = _evaluate_predictions(
+        estimator, X_test, y_test, task_type, name, candidate_scores, strategy
+    )
+    result.metrics["run_config"] = {
+        "test_size": test_size,
+        "random_state": random_state,
+        "cv_folds": cv_folds,
+        "auto_subset_size": auto_subset_size,
+        "model_params": model_params or {},
+        "split_strategy": "stratified holdout" if stratify is not None else "holdout",
+        "leakage_prevention": "For text pipelines, use train_supervised_from_state to split before vectorization.",
+    }
+    if model_name == "Auto":
+        result.metrics["auto_config"] = {
+            k: v for k, v in scores.items() if k != "candidate_scores"
+        }
+    return result
 
 
 def train_supervised_from_state(
@@ -354,6 +433,8 @@ def train_supervised_from_state(
     test_size: float = 0.2,
     random_state: int = 42,
     cv_folds: int = 5,
+    auto_subset_size: Optional[int] = None,
+    model_params: Optional[Dict[str, Any]] = None,
     cancel_event=None,
     progress_callback=None,
 ) -> SupervisedResult:
@@ -390,21 +471,37 @@ def train_supervised_from_state(
         X_test = vec.transformer_sentence_embeddings(test_docs).vector
 
         if model_name == "Auto":
-            name, estimator, scores, strategy = _select_candidate(
-                _candidate_models(task_type, random_state),
+            name, estimator, scores = _select_candidate(
+                _candidate_models(task_type, random_state, model_params),
                 X_train,
                 y_train,
                 task_type,
                 random_state,
                 cv_folds,
+                auto_subset_size,
                 progress_callback,
             )
+            candidate_scores = scores["candidate_scores"]
+            strategy = scores["selection_strategy"]
         else:
-            estimator, name = _single_model(task_type, model_name, random_state)
-            scores = None
+            estimator, name = _single_model(task_type, model_name, random_state, model_params)
+            candidate_scores = None
             strategy = None
         estimator.fit(X_train, y_train)
-        result = _evaluate_predictions(estimator, X_test, y_test, task_type, name, scores, strategy)
+        result = _evaluate_predictions(
+            estimator, X_test, y_test, task_type, name, candidate_scores, strategy
+        )
+        _attach_run_config(
+            result,
+            test_size,
+            random_state,
+            cv_folds,
+            auto_subset_size,
+            model_params,
+            stratify,
+            model_name,
+            scores if model_name == "Auto" else None,
+        )
         result.test_indices = source_indices[test_idx]
         return result
 
@@ -416,26 +513,68 @@ def train_supervised_from_state(
     if model_name == "Auto":
         pipe_candidates = [
             (name, as_pipeline(model))
-            for name, model in _candidate_models(task_type, random_state)
+            for name, model in _candidate_models(task_type, random_state, model_params)
         ]
-        name, estimator, scores, strategy = _select_candidate(
+        name, estimator, scores = _select_candidate(
             pipe_candidates,
             train_docs,
             y_train,
             task_type,
             random_state,
             cv_folds,
+            auto_subset_size,
             progress_callback,
         )
+        candidate_scores = scores["candidate_scores"]
+        strategy = scores["selection_strategy"]
     else:
-        model, name = _single_model(task_type, model_name, random_state)
+        model, name = _single_model(task_type, model_name, random_state, model_params)
         estimator = as_pipeline(model)
-        scores = None
+        candidate_scores = None
         strategy = None
 
     estimator.fit(train_docs, y_train)
     if progress_callback is not None:
         progress_callback(1.0, "Done.")
-    result = _evaluate_predictions(estimator, test_docs, y_test, task_type, name, scores, strategy)
+    result = _evaluate_predictions(
+        estimator, test_docs, y_test, task_type, name, candidate_scores, strategy
+    )
+    _attach_run_config(
+        result,
+        test_size,
+        random_state,
+        cv_folds,
+        auto_subset_size,
+        model_params,
+        stratify,
+        model_name,
+        scores if model_name == "Auto" else None,
+    )
     result.test_indices = source_indices[test_idx]
     return result
+
+
+def _attach_run_config(
+    result: SupervisedResult,
+    test_size: float,
+    random_state: int,
+    cv_folds: int,
+    auto_subset_size: Optional[int],
+    model_params: Optional[Dict[str, Any]],
+    stratify,
+    model_name: str,
+    auto_details: Optional[Dict[str, Any]],
+) -> None:
+    result.metrics["run_config"] = {
+        "test_size": test_size,
+        "random_state": random_state,
+        "cv_folds": cv_folds,
+        "auto_subset_size": auto_subset_size,
+        "model_params": model_params or {},
+        "split_strategy": "stratified holdout" if stratify is not None else "holdout",
+        "leakage_prevention": "Documents are split before vectorizer fitting; vectorizers are fit only on training data.",
+    }
+    if model_name == "Auto" and auto_details:
+        result.metrics["auto_config"] = {
+            k: v for k, v in auto_details.items() if k != "candidate_scores"
+        }

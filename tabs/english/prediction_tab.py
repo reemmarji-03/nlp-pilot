@@ -4,8 +4,9 @@ from bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
+from tkinter import END, Listbox, filedialog, messagebox
 import json
+import os
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,13 @@ from core import english_nlp as enlp
 from core import supervised as sup
 from core import unsupervised as unsup
 from core import vectorization as vec
+from core.model_registry import (
+    UserModelSpec,
+    list_user_model_specs,
+    remove_user_model_spec,
+    save_user_model_spec,
+)
+from core.run_metadata import run_metadata
 from core.settings_manager import settings
 from core.task_runner import TaskRunner
 from tabs.progress_overlay import ProgressOverlay
@@ -120,6 +128,9 @@ class PredictionTab(ctk.CTkFrame):
         self.supervised_model_combo = None
         self.supervised_vector_label = None
         self.test_size_entry = None
+        self.cv_folds_entry = None
+        self.auto_subset_entry = None
+        self.rf_estimators_entry = None
         self.supervised_metrics_box = None
         self.supervised_plot_figure = None
         self.supervised_plot_canvas = None
@@ -127,6 +138,12 @@ class PredictionTab(ctk.CTkFrame):
         self.current_task_type = None  # "classification" or "regression"
         self.last_supervised_result = None
         self.last_supervised_context = {}
+        self.supervised_settings = {
+            "test_size": 0.2,
+            "cv_folds": 5,
+            "auto_subset_size": 0,
+            "rf_estimators": 200,
+        }
 
         # clustering-related
         self.clustering_vector_label = None
@@ -141,6 +158,7 @@ class PredictionTab(ctk.CTkFrame):
         self.topic_plot_figure = None
         self.topic_plot_canvas = None
         self.last_topic_export = None
+        self.last_cluster_export = None
         # animated K-Means state
         self.cluster_canvas = None
         self.points = []          # list [[x,y], ...] PCA coords mapped to canvas
@@ -209,7 +227,7 @@ class PredictionTab(ctk.CTkFrame):
         parent.columnconfigure(1, weight=1)
 
         # Sidebar
-        sidebar = ctk.CTkFrame(parent, fg_color="#121212", corner_radius=10)
+        sidebar = ctk.CTkScrollableFrame(parent, fg_color="#121212", corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
         ctk.CTkLabel(
@@ -276,18 +294,20 @@ class PredictionTab(ctk.CTkFrame):
         )
         self.supervised_model_combo.set("Auto")
         self.supervised_model_combo.pack(padx=10, pady=(2, 10))
-
-        # Test size
-        ctk.CTkLabel(
+        ctk.CTkButton(
             sidebar,
-            text="Test size (0–0.9):",
-            text_color="#cccccc",
-            font=ctk.CTkFont(size=13),
-        ).pack(anchor="w", padx=10, pady=(5, 0))
-
-        self.test_size_entry = ctk.CTkEntry(sidebar, width=80)
-        self.test_size_entry.insert(0, "0.2")
-        self.test_size_entry.pack(anchor="w", padx=10, pady=(2, 10))
+            text="Manage Models",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.open_model_manager,
+        ).pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkButton(
+            sidebar,
+            text="Training Settings",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.open_supervised_settings,
+        ).pack(fill="x", padx=10, pady=(0, 14))
 
         # Train button
         self._sup_train_btn = ctk.CTkButton(
@@ -300,17 +320,10 @@ class PredictionTab(ctk.CTkFrame):
         self._sup_train_btn.pack(fill="x", padx=10, pady=(0, 10))
         ctk.CTkButton(
             sidebar,
-            text="Export results (JSON)",
+            text="Export Results",
             fg_color="#444444",
             hover_color="#333333",
-            command=self.export_supervised_json,
-        ).pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkButton(
-            sidebar,
-            text="Export predictions (CSV)",
-            fg_color="#444444",
-            hover_color="#333333",
-            command=self.export_supervised_predictions_csv,
+            command=self.open_supervised_export_dialog,
         ).pack(fill="x", padx=10, pady=(0, 10))
         self.sup_progress = ProgressOverlay(sidebar, task_runner=self.sup_runner)
 
@@ -418,22 +431,24 @@ class PredictionTab(ctk.CTkFrame):
         # Decide task type: numeric -> regression, else classification
         if np.issubdtype(series.dtype, np.number):
             self.current_task_type = "regression"
-            models = [
-                "Auto",
-                "Linear Regression",
-                "Ridge Regression",
-                "Random Forest Regressor",
-            ]
+            models = sup.available_model_names("regression")
         else:
             self.current_task_type = "classification"
-            models = [
-                "Auto",
-                "Logistic Regression",
-                "Linear SVM",
-                "Random Forest",
-            ]
+            models = sup.available_model_names("classification")
         self.supervised_model_combo.configure(values=models)
         self.supervised_model_combo.set("Auto")
+
+    def open_model_manager(self):
+        ModelManagerWindow(self, on_change=lambda: self.refresh_supervised_columns(silent=True))
+
+    def open_supervised_settings(self):
+        SupervisedSettingsWindow(self)
+
+    def open_supervised_export_dialog(self):
+        if self.last_supervised_result is None:
+            messagebox.showwarning("Warning", "Train a supervised model first.")
+            return
+        SupervisedExportDialog(self)
 
     def train_supervised_model(self):
         if not enlp.is_csv_mode(self.state) or self.state.df is None:
@@ -456,11 +471,30 @@ class PredictionTab(ctk.CTkFrame):
         max_feat = self.state.last_vector_max_features or 5000
 
         try:
-            test_size = float(self.test_size_entry.get() or "0.2")
-        except ValueError:
+            test_size = float(self.supervised_settings.get("test_size", 0.2))
+        except (TypeError, ValueError):
             test_size = 0.2
         if test_size <= 0 or test_size >= 0.9:
             test_size = 0.2
+
+        try:
+            cv_folds = int(self.supervised_settings.get("cv_folds", 5))
+        except (TypeError, ValueError):
+            cv_folds = 5
+        cv_folds = max(2, min(cv_folds, 20))
+
+        try:
+            auto_subset_size = int(self.supervised_settings.get("auto_subset_size", 0))
+        except (TypeError, ValueError):
+            auto_subset_size = 0
+        auto_subset_size = max(0, auto_subset_size) or None
+
+        try:
+            rf_estimators = int(self.supervised_settings.get("rf_estimators", 200))
+        except (TypeError, ValueError):
+            rf_estimators = 200
+        rf_estimators = max(10, min(rf_estimators, 2000))
+        model_params = {"n_estimators": rf_estimators}
 
         chosen_model = self.supervised_model_combo.get() or "Auto"
 
@@ -480,6 +514,9 @@ class PredictionTab(ctk.CTkFrame):
                 model_name=chosen_model,
                 test_size=test_size,
                 random_state=settings.get_seed(),
+                cv_folds=cv_folds,
+                auto_subset_size=auto_subset_size,
+                model_params=model_params,
                 cancel_event=cancel_event,
                 progress_callback=progress_callback,
             )
@@ -497,6 +534,9 @@ class PredictionTab(ctk.CTkFrame):
                 "max_features": mf,
                 "test_size": test_size,
                 "seed": settings.get_seed(),
+                "cv_folds": cv_folds,
+                "auto_subset_size": auto_subset_size,
+                "model_params": model_params,
             }
             self._display_supervised_results(result, vm, ng, mf)
 
@@ -527,6 +567,26 @@ class PredictionTab(ctk.CTkFrame):
                 "end",
                 f"Auto selection strategy: {strategy}\n"
                 f"Seed: {settings.get_seed()}\n\n",
+            )
+        run_config = result.metrics.get("run_config", {})
+        auto_config = result.metrics.get("auto_config", {})
+        if run_config:
+            self.supervised_metrics_box.insert("end", "Run configuration:\n")
+            self.supervised_metrics_box.insert(
+                "end",
+                f"  split={run_config.get('split_strategy')}\n"
+                f"  test_size={run_config.get('test_size')}\n"
+                f"  cv_folds={run_config.get('cv_folds')}\n"
+                f"  auto_subset_size={run_config.get('auto_subset_size')}\n"
+                f"  model_params={run_config.get('model_params')}\n",
+            )
+        if auto_config:
+            self.supervised_metrics_box.insert("end", "Auto mode details:\n")
+            self.supervised_metrics_box.insert(
+                "end",
+                f"  scoring={auto_config.get('scoring')}\n"
+                f"  requested_folds={auto_config.get('requested_cv_folds')}\n"
+                f"  effective_folds={auto_config.get('effective_cv_folds')}\n\n",
             )
         self.supervised_metrics_box.insert(
             "end",
@@ -575,17 +635,20 @@ class PredictionTab(ctk.CTkFrame):
                     continue
                 if k == "selection_strategy":
                     continue
+                if k in {"run_config", "auto_config"}:
+                    continue
                 self.supervised_metrics_box.insert("end", f"{k}: {v:.4f}\n")
 
             self._clear_supervised_plot()
 
-    def export_supervised_json(self):
+    def export_supervised_json(self, path: str | None = None):
         result = self.last_supervised_result
         if result is None:
             messagebox.showwarning("Warning", "Train a supervised model first.")
             return
 
         payload = {
+            "metadata": run_metadata(self.last_supervised_context),
             "context": self.last_supervised_context,
             "task_type": result.task_type,
             "model_name": result.model_name,
@@ -595,21 +658,23 @@ class PredictionTab(ctk.CTkFrame):
                 result.test_indices.tolist() if result.test_indices is not None else None
             ),
         }
-        path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            initialfile="nlp_pilot_supervised_results.json",
-            title="Save supervised results JSON",
-        )
+        if path is None:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                initialfile="nlp_pilot_supervised_results.json",
+                title="Save supervised results JSON",
+            )
         if not path:
             return
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
+            messagebox.showinfo("Export complete", f"Saved results to:\n{path}")
         except Exception as exc:
             messagebox.showerror("Export error", f"Could not save JSON:\n{exc}")
 
-    def export_supervised_predictions_csv(self):
+    def export_supervised_predictions_csv(self, path: str | None = None):
         result = self.last_supervised_result
         if result is None:
             messagebox.showwarning("Warning", "Train a supervised model first.")
@@ -626,16 +691,18 @@ class PredictionTab(ctk.CTkFrame):
                 "y_pred": result.y_pred,
             }
         )
-        path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile="nlp_pilot_supervised_predictions.csv",
-            title="Save supervised predictions CSV",
-        )
+        if path is None:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                initialfile="nlp_pilot_supervised_predictions.csv",
+                title="Save supervised predictions CSV",
+            )
         if not path:
             return
         try:
             df.to_csv(path, index=False, encoding="utf-8")
+            messagebox.showinfo("Export complete", f"Saved predictions to:\n{path}")
         except Exception as exc:
             messagebox.showerror("Export error", f"Could not save CSV:\n{exc}")
 
@@ -750,6 +817,13 @@ class PredictionTab(ctk.CTkFrame):
             command=self.run_elbow_method,
         )
         self._clust_elbow_btn.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkButton(
+            sidebar,
+            text="Export clusters (CSV)",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self.export_clusters_csv,
+        ).pack(fill="x", padx=10, pady=(0, 10))
         self.clust_progress = ProgressOverlay(sidebar, task_runner=self.clust_runner)
 
         # Right side: summary + plot/animation
@@ -1018,6 +1092,12 @@ class PredictionTab(ctk.CTkFrame):
             return
 
         unique, counts = np.unique(result.labels, return_counts=True)
+        self.last_cluster_export = pd.DataFrame(
+            {
+                "sample": labels_for_display,
+                "cluster": result.labels,
+            }
+        )
         self.cluster_summary_box.insert("end", f"Static K-Means with k={k}\n\n")
         self.cluster_summary_box.insert("end", "Cluster sizes:\n")
         for u, c in zip(unique, counts):
@@ -1033,6 +1113,23 @@ class PredictionTab(ctk.CTkFrame):
 
         # Scatter via PCA
         self._plot_cluster_pca(X, result.labels)
+
+    def export_clusters_csv(self):
+        if self.last_cluster_export is None:
+            messagebox.showwarning("Warning", "Run static clustering first.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="nlp_pilot_clusters.csv",
+            title="Save clusters CSV",
+        )
+        if not path:
+            return
+        try:
+            self.last_cluster_export.to_csv(path, index=False, encoding="utf-8")
+        except Exception as exc:
+            messagebox.showerror("Export error", f"Could not save CSV:\n{exc}")
 
     def _plot_cluster_pca(self, X: np.ndarray, cluster_labels: np.ndarray):
         self._clear_cluster_plot()
@@ -1247,17 +1344,10 @@ class PredictionTab(ctk.CTkFrame):
         self._topic_run_btn.pack(fill="x", padx=10, pady=(5, 10))
         ctk.CTkButton(
             sidebar,
-            text="Export topics (CSV)",
+            text="Export Topics",
             fg_color="#444444",
             hover_color="#333333",
-            command=self.export_topics_csv,
-        ).pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkButton(
-            sidebar,
-            text="Export topics (JSON)",
-            fg_color="#444444",
-            hover_color="#333333",
-            command=self.export_topics_json,
+            command=self.open_topic_export_dialog,
         ).pack(fill="x", padx=10, pady=(0, 10))
         self.topic_progress = ProgressOverlay(sidebar, task_runner=self.topic_runner)
 
@@ -1383,43 +1473,54 @@ class PredictionTab(ctk.CTkFrame):
         self.topic_plot_canvas.draw()
         self.topic_plot_canvas.get_tk_widget().pack(fill="both", expand=True)
 
-    def export_topics_csv(self):
+    def open_topic_export_dialog(self):
         if self.topic_info is None or self.doc_info is None:
             messagebox.showwarning("Warning", "Run BERTopic first.")
             return
-        path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile="nlp_pilot_topics.csv",
-            title="Save topics CSV",
-        )
+        TopicExportDialog(self)
+
+    def export_topics_csv(self, path: str | None = None):
+        if self.topic_info is None or self.doc_info is None:
+            messagebox.showwarning("Warning", "Run BERTopic first.")
+            return
+        if path is None:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                initialfile="nlp_pilot_topics.csv",
+                title="Save topics CSV",
+            )
         if not path:
             return
         try:
             self.doc_info.to_csv(path, index=False, encoding="utf-8")
+            messagebox.showinfo("Export complete", f"Saved topics to:\n{path}")
         except Exception as exc:
             messagebox.showerror("Export error", f"Could not save CSV:\n{exc}")
 
-    def export_topics_json(self):
+    def export_topics_json(self, path: str | None = None):
         if self.topic_info is None or self.doc_info is None:
             messagebox.showwarning("Warning", "Run BERTopic first.")
             return
         payload = {
+            "metadata": run_metadata(self.last_topic_export or {}),
             "context": self.last_topic_export or {},
             "topic_info": self.topic_info.to_dict(orient="records"),
             "document_info": self.doc_info.to_dict(orient="records"),
         }
-        path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            initialfile="nlp_pilot_topics.json",
-            title="Save topics JSON",
-        )
+        if path is None:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                initialfile="nlp_pilot_topics.json",
+                title="Save topics JSON",
+            )
         if not path:
             return
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(_json_safe(payload), f, indent=2)
+            messagebox.showinfo("Export complete", f"Saved topics to:\n{path}")
         except Exception as exc:
             messagebox.showerror("Export error", f"Could not save JSON:\n{exc}")
 
@@ -1490,3 +1591,453 @@ class PredictionTab(ctk.CTkFrame):
         self.topic_plot_canvas = FigureCanvasTkAgg(self.topic_plot_figure, master=self.topic_plot_container)
         self.topic_plot_canvas.draw()
         self.topic_plot_canvas.get_tk_widget().pack(fill="both", expand=True)
+
+
+class TopicExportDialog(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Export Topics")
+        self.geometry("450x230")
+        self.resizable(False, False)
+        self.grab_set()
+        self._build_ui()
+
+    def _build_ui(self):
+        ctk.CTkLabel(
+            self,
+            text="Export topic modeling output",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#6ea8fe",
+        ).pack(anchor="w", padx=16, pady=(16, 8))
+
+        ctk.CTkLabel(self, text="Format:").pack(anchor="w", padx=16, pady=(4, 2))
+        self.format_combo = ctk.CTkComboBox(
+            self,
+            values=["Topics CSV", "Topics JSON"],
+            state="readonly",
+            command=lambda _: self._sync_default_path(),
+        )
+        self.format_combo.set("Topics CSV")
+        self.format_combo.pack(fill="x", padx=16, pady=(0, 8))
+
+        ctk.CTkLabel(self, text="Save to:").pack(anchor="w", padx=16, pady=(4, 2))
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(0, 14))
+        row.columnconfigure(0, weight=1)
+        self.path_entry = ctk.CTkEntry(row)
+        self.path_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            row,
+            text="Browse",
+            width=86,
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self._browse,
+        ).grid(row=0, column=1)
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=16, pady=(2, 16))
+        ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            fg_color="#555555",
+            hover_color="#444444",
+            command=self.destroy,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            buttons,
+            text="Export",
+            fg_color="#0078ff",
+            hover_color="#005dc1",
+            command=self._export,
+        ).pack(side="right")
+        self._sync_default_path()
+
+    def _is_json(self) -> bool:
+        return self.format_combo.get() == "Topics JSON"
+
+    def _sync_default_path(self):
+        current = self.path_entry.get().strip() if hasattr(self, "path_entry") else ""
+        ext = ".json" if self._is_json() else ".csv"
+        if current and os.path.basename(current).split(".")[0] != "nlp_pilot_topics":
+            return
+        self.path_entry.delete(0, "end")
+        self.path_entry.insert(0, os.path.join(os.getcwd(), f"nlp_pilot_topics{ext}"))
+
+    def _browse(self):
+        is_json = self._is_json()
+        ext = ".json" if is_json else ".csv"
+        filetypes = [("JSON files", "*.json")] if is_json else [("CSV files", "*.csv")]
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            defaultextension=ext,
+            filetypes=filetypes + [("All files", "*.*")],
+            initialfile=os.path.basename(self.path_entry.get().strip()) or f"nlp_pilot_topics{ext}",
+            title="Choose export location",
+        )
+        if path:
+            self.path_entry.delete(0, END)
+            self.path_entry.insert(0, path)
+
+    def _export(self):
+        path = self.path_entry.get().strip()
+        if not path:
+            messagebox.showwarning("Missing location", "Choose where to save the export.", parent=self)
+            return
+        if self._is_json():
+            self.parent.export_topics_json(path)
+        else:
+            self.parent.export_topics_csv(path)
+        self.destroy()
+
+
+class SupervisedSettingsWindow(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Training Settings")
+        self.geometry("430x360")
+        self.resizable(False, False)
+        self.grab_set()
+        self.entries = {}
+        self._build_ui()
+
+    def _build_ui(self):
+        self.columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            self,
+            text="Supervised Training Settings",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#6ea8fe",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(16, 10))
+
+        fields = [
+            ("test_size", "Test size", "0.2"),
+            ("cv_folds", "Auto CV folds", "5"),
+            ("auto_subset_size", "Auto subset size", "0"),
+            ("rf_estimators", "Random forest trees", "200"),
+        ]
+        for row, (key, label, fallback) in enumerate(fields, start=1):
+            ctk.CTkLabel(self, text=label + ":").grid(
+                row=row, column=0, sticky="w", padx=16, pady=6
+            )
+            entry = ctk.CTkEntry(self, width=140)
+            entry.insert(0, str(self.parent.supervised_settings.get(key, fallback)))
+            entry.grid(row=row, column=1, sticky="ew", padx=(0, 16), pady=6)
+            self.entries[key] = entry
+
+        ctk.CTkLabel(
+            self,
+            text=(
+                "Auto subset size of 0 uses all rows. Random forest trees only "
+                "applies to Random Forest and Auto's Random Forest candidate."
+            ),
+            text_color="#aaaaaa",
+            wraplength=380,
+            justify="left",
+        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=16, pady=(8, 14))
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.grid(row=6, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 16))
+        ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            fg_color="#555555",
+            hover_color="#444444",
+            command=self.destroy,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            buttons,
+            text="Save",
+            fg_color="#0078ff",
+            hover_color="#005dc1",
+            command=self._save,
+        ).pack(side="right")
+
+    def _save(self):
+        try:
+            test_size = float(self.entries["test_size"].get())
+            cv_folds = int(self.entries["cv_folds"].get())
+            auto_subset_size = int(self.entries["auto_subset_size"].get())
+            rf_estimators = int(self.entries["rf_estimators"].get())
+        except ValueError:
+            messagebox.showerror("Invalid settings", "Use numeric values for all fields.", parent=self)
+            return
+
+        if not 0 < test_size < 0.9:
+            messagebox.showerror("Invalid settings", "Test size must be between 0 and 0.9.", parent=self)
+            return
+
+        self.parent.supervised_settings.update(
+            {
+                "test_size": test_size,
+                "cv_folds": max(2, min(cv_folds, 20)),
+                "auto_subset_size": max(0, auto_subset_size),
+                "rf_estimators": max(10, min(rf_estimators, 2000)),
+            }
+        )
+        self.destroy()
+
+
+class SupervisedExportDialog(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Export Results")
+        self.geometry("450x230")
+        self.resizable(False, False)
+        self.grab_set()
+        self._build_ui()
+
+    def _build_ui(self):
+        ctk.CTkLabel(
+            self,
+            text="Export supervised output",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#6ea8fe",
+        ).pack(anchor="w", padx=16, pady=(16, 8))
+
+        ctk.CTkLabel(self, text="Format:").pack(anchor="w", padx=16, pady=(4, 2))
+        self.format_combo = ctk.CTkComboBox(
+            self,
+            values=["Summary JSON", "Predictions CSV"],
+            state="readonly",
+            command=lambda _: self._sync_default_path(),
+        )
+        self.format_combo.set("Summary JSON")
+        self.format_combo.pack(fill="x", padx=16, pady=(0, 8))
+
+        ctk.CTkLabel(self, text="Save to:").pack(anchor="w", padx=16, pady=(4, 2))
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(0, 14))
+        row.columnconfigure(0, weight=1)
+        self.path_entry = ctk.CTkEntry(row)
+        self.path_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            row,
+            text="Browse",
+            width=86,
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self._browse,
+        ).grid(row=0, column=1)
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=16, pady=(2, 16))
+        ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            fg_color="#555555",
+            hover_color="#444444",
+            command=self.destroy,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            buttons,
+            text="Export",
+            fg_color="#0078ff",
+            hover_color="#005dc1",
+            command=self._export,
+        ).pack(side="right")
+        self._sync_default_path()
+
+    def _is_predictions(self) -> bool:
+        return self.format_combo.get() == "Predictions CSV"
+
+    def _sync_default_path(self):
+        current = self.path_entry.get().strip() if hasattr(self, "path_entry") else ""
+        stem = "nlp_pilot_supervised_predictions" if self._is_predictions() else "nlp_pilot_supervised_results"
+        ext = ".csv" if self._is_predictions() else ".json"
+        if current and os.path.basename(current).split(".")[0] not in {
+            "nlp_pilot_supervised_results",
+            "nlp_pilot_supervised_predictions",
+        }:
+            return
+        self.path_entry.delete(0, "end")
+        self.path_entry.insert(0, os.path.join(os.getcwd(), f"{stem}{ext}"))
+
+    def _browse(self):
+        is_predictions = self._is_predictions()
+        ext = ".csv" if is_predictions else ".json"
+        filetypes = [("CSV files", "*.csv")] if is_predictions else [("JSON files", "*.json")]
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            defaultextension=ext,
+            filetypes=filetypes + [("All files", "*.*")],
+            initialfile=os.path.basename(self.path_entry.get().strip()) or f"nlp_pilot_export{ext}",
+            title="Choose export location",
+        )
+        if path:
+            self.path_entry.delete(0, END)
+            self.path_entry.insert(0, path)
+
+    def _export(self):
+        path = self.path_entry.get().strip()
+        if not path:
+            messagebox.showwarning("Missing location", "Choose where to save the export.", parent=self)
+            return
+        if self._is_predictions():
+            self.parent.export_supervised_predictions_csv(path)
+        else:
+            self.parent.export_supervised_json(path)
+        self.destroy()
+
+
+class ModelManagerWindow(ctk.CTkToplevel):
+    def __init__(self, parent, on_change=None):
+        super().__init__(parent)
+        self.title("Manage Models")
+        self.geometry("620x520")
+        self.resizable(False, False)
+        self.grab_set()
+        self.on_change = on_change
+        self._specs = []
+        self._build_ui()
+        self._refresh_specs()
+
+    def _build_ui(self):
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(6, weight=1)
+
+        ctk.CTkLabel(
+            self,
+            text="Custom Supervised Models",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#6ea8fe",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=16, pady=(16, 8))
+
+        ctk.CTkLabel(self, text="Display name:").grid(
+            row=1, column=0, sticky="w", padx=16, pady=4
+        )
+        self.name_entry = ctk.CTkEntry(self, width=260)
+        self.name_entry.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(0, 16), pady=4)
+
+        ctk.CTkLabel(self, text="Task type:").grid(
+            row=2, column=0, sticky="w", padx=16, pady=4
+        )
+        self.task_combo = ctk.CTkComboBox(
+            self,
+            values=["classification", "regression"],
+            state="readonly",
+            width=180,
+        )
+        self.task_combo.set("classification")
+        self.task_combo.grid(row=2, column=1, sticky="w", padx=(0, 16), pady=4)
+
+        ctk.CTkLabel(self, text="Python file:").grid(
+            row=3, column=0, sticky="w", padx=16, pady=4
+        )
+        self.path_entry = ctk.CTkEntry(self, width=360)
+        self.path_entry.grid(row=3, column=1, sticky="ew", padx=(0, 8), pady=4)
+        ctk.CTkButton(
+            self,
+            text="Browse",
+            width=80,
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self._browse,
+        ).grid(row=3, column=2, sticky="e", padx=(0, 16), pady=4)
+
+        ctk.CTkLabel(self, text="Class/factory:").grid(
+            row=4, column=0, sticky="w", padx=16, pady=4
+        )
+        self.object_entry = ctk.CTkEntry(self, width=260)
+        self.object_entry.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 16), pady=4)
+
+        ctk.CTkLabel(
+            self,
+            text="The object must return a scikit-learn compatible estimator with fit, predict, and get_params.",
+            text_color="#aaaaaa",
+            wraplength=560,
+            justify="left",
+        ).grid(row=5, column=0, columnspan=3, sticky="w", padx=16, pady=(4, 10))
+
+        self.listbox = Listbox(
+            self,
+            height=8,
+            bg="#1e1e1e",
+            fg="white",
+            selectbackground="#0078ff",
+            selectforeground="white",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground="#333333",
+        )
+        self.listbox.grid(row=6, column=0, columnspan=3, sticky="nsew", padx=16, pady=(0, 10))
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.grid(row=7, column=0, columnspan=3, sticky="ew", padx=16, pady=(0, 16))
+
+        ctk.CTkButton(
+            btn_row,
+            text="Add Model",
+            fg_color="#0078ff",
+            hover_color="#005dc1",
+            command=self._add_model,
+        ).pack(side="left")
+        ctk.CTkButton(
+            btn_row,
+            text="Remove Selected",
+            fg_color="#444444",
+            hover_color="#333333",
+            command=self._remove_selected,
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(
+            btn_row,
+            text="Close",
+            fg_color="#555555",
+            hover_color="#444444",
+            command=self.destroy,
+        ).pack(side="right")
+
+    def _browse(self):
+        path = filedialog.askopenfilename(
+            filetypes=[("Python files", "*.py"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        self.path_entry.delete(0, END)
+        self.path_entry.insert(0, path)
+
+    def _add_model(self):
+        spec = UserModelSpec(
+            task_type=self.task_combo.get(),
+            name=self.name_entry.get().strip(),
+            module_path=self.path_entry.get().strip(),
+            object_name=self.object_entry.get().strip(),
+        )
+        try:
+            save_user_model_spec(spec)
+        except Exception as exc:
+            messagebox.showerror("Model registration failed", str(exc), parent=self)
+            return
+
+        self.name_entry.delete(0, END)
+        self.object_entry.delete(0, END)
+        self._refresh_specs()
+        if self.on_change:
+            self.on_change()
+        messagebox.showinfo("Model added", f"Registered '{spec.name}'.", parent=self)
+
+    def _remove_selected(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        spec = self._specs[selection[0]]
+        try:
+            remove_user_model_spec(spec.task_type, spec.name)
+        except Exception as exc:
+            messagebox.showerror("Remove failed", str(exc), parent=self)
+            return
+        self._refresh_specs()
+        if self.on_change:
+            self.on_change()
+
+    def _refresh_specs(self):
+        self._specs = list_user_model_specs()
+        self.listbox.delete(0, END)
+        for spec in self._specs:
+            self.listbox.insert(
+                END,
+                f"{spec.task_type}: {spec.name}  ->  {spec.object_name} ({spec.module_path})",
+            )

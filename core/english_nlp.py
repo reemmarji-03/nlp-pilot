@@ -62,15 +62,21 @@ def load_text_from_file(path: str) -> str:
             return f.read()
 
     if path.lower().endswith(".docx"):
-        doc = docx.Document(path)
-        return "\n".join(p.text for p in doc.paragraphs)
+        try:
+            doc = docx.Document(path)
+            return "\n".join(p.text for p in doc.paragraphs)
+        except Exception:
+            return ""
 
     if path.lower().endswith(".pdf"):
-        text = []
-        with pdfplumber.open(path) as pdf:
-            for page in pdf.pages:
-                text.append(page.extract_text() or "")
-        return "\n".join(text)
+        try:
+            text = []
+            with pdfplumber.open(path) as pdf:
+                for page in pdf.pages:
+                    text.append(page.extract_text() or "")
+            return "\n".join(text)
+        except Exception:
+            return ""
 
     # Unsupported extension
     return ""
