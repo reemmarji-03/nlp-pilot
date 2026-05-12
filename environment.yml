@@ -8,7 +8,6 @@ dependencies:
   - nltk>=3.8,<4
   - spacy>=3.7,<4
   - transformers>=4.40,<5
-  - pdfplumber>=0.11,<1
   - scikit-learn>=1.4,<2
   - matplotlib>=3.8,<4
   - reportlab>=4.0,<5
