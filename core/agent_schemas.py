@@ -44,7 +44,7 @@ class PreprocessConfigDecision(BaseModel):
 # Vectorization config
 
 class VectorConfigDecision(BaseModel):
-    method: Literal["TF-IDF (word)", "Bag-of-Words", "Char n-grams", "Transformer embeddings"]
+    method: Literal["TF-IDF (word)", "Bag-of-Words", "TF-IDF (char)", "Transformer embeddings"]
 
     # Use a list instead of a tuple so OpenAI's structured output schema is valid.
     # We enforce length = 2 so it still behaves like (min_n, max_n).
@@ -63,8 +63,27 @@ class VectorConfigDecision(BaseModel):
 
 class ModelConfigDecision(BaseModel):
     label_column: Optional[str]
-    model_name: Literal["Logistic Regression", "Linear SVM", "Random Forest", "Auto"]
+    model_name: Literal[
+        "Logistic Regression",
+        "Linear SVM",
+        "Random Forest",
+        "Linear Regression",
+        "Ridge Regression",
+        "Random Forest Regressor",
+        "Auto",
+    ]
     test_size: float
+    cv_folds: int = 5
+    auto_subset_size: int = 0
+    rf_estimators: int = 200
     explanation: str
+    needs_clarification: bool = False
+    clarification_question: Optional[str] = None
+
+
+class ClusteringConfigDecision(BaseModel):
+    n_clusters: int = 3
+    explanation: str
+    ready_to_apply: bool = False
     needs_clarification: bool = False
     clarification_question: Optional[str] = None

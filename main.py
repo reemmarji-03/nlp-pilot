@@ -4,12 +4,13 @@ from tabs.english import EnglishTab
 from tabs.settings_window import SettingsWindow
 from core.reproducibility import set_global_seed
 from core.settings_manager import settings
-import lookups
+
+APP_TITLE = "NLP Pilot"
 
 class NLPApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title(lookups.title)
+        self.title(APP_TITLE)
         self.geometry("1150x700")
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
@@ -22,7 +23,7 @@ class NLPApp(ctk.CTk):
 
         title_label = ctk.CTkLabel(
             header,
-            text=lookups.title,
+            text=APP_TITLE,
             text_color="#6ea8fe",
             font=ctk.CTkFont(size=16, weight="bold"),
         )

@@ -1,24 +1,48 @@
 from typing import TypedDict, Literal, Optional, Dict, Any, List
 from dataclasses import dataclass
 
+import pandas as pd
 from langgraph.graph import StateGraph, END
 from langchain.messages import HumanMessage
 
 from core.english_state import EnglishState
 from core import english_nlp as enlp
 from core import supervised as sup
+from core import unsupervised as unsup
 from core.agent_schemas import (
     TaskSelectionDecision,
     PreprocessConfigDecision,
     VectorConfigDecision,
     ModelConfigDecision,
+    ClusteringConfigDecision,
 )
 from core import prompts as agent_prompts
 from core.settings_manager import settings
 
 _NO_LLM_MSG = (
-    "No LLM provider configured — open Settings (⚙) to set one up."
+    "No LLM provider configured. Open Settings to select Ollama, OpenAI, or Anthropic."
 )
+
+
+def _clean_direct_address(text: str) -> str:
+    """Remove third-person phrasing that can leak from LLM decision explanations."""
+    replacements = {
+        "The user wants to": "You want to",
+        "the user wants to": "you want to",
+        "User wants to": "You want to",
+        "The user has": "You have",
+        "the user has": "you have",
+        "User has": "You have",
+        "The user is": "You are",
+        "the user is": "you are",
+        "User is": "You are",
+        "The user": "You",
+        "the user": "you",
+    }
+    cleaned = text or ""
+    for old, new in replacements.items():
+        cleaned = cleaned.replace(old, new)
+    return cleaned
 
 
 def _get_llm():
@@ -29,7 +53,88 @@ def _get_structured_llm(schema):
     llm = _get_llm()
     if llm is None:
         return None
-    return llm.with_structured_output(schema)
+    try:
+        return llm.with_structured_output(schema)
+    except Exception:
+        return None
+
+
+def _candidate_label_context(eng: EnglishState, task_type: str | None = None) -> dict:
+    if eng.df is None:
+        return {"columns": [], "profiles": [], "suggested_label": None}
+
+    columns = list(eng.df.columns)
+    if eng.csv_text_column in columns:
+        columns.remove(eng.csv_text_column)
+
+    profiles = []
+    for col in columns:
+        series = eng.df[col]
+        non_null = series.dropna()
+        samples = [str(v)[:60] for v in non_null.head(5).tolist()]
+        profiles.append(
+            {
+                "name": col,
+                "dtype": str(series.dtype),
+                "missing": int(series.isna().sum()),
+                "unique": int(non_null.nunique(dropna=True)),
+                "samples": samples,
+            }
+        )
+
+    def name_score(name: str) -> int:
+        lowered = name.lower()
+        score = 0
+        for token in ("label", "target", "class", "category", "sentiment", "outcome"):
+            if token in lowered:
+                score += 10
+        for token in ("rating", "score", "value", "y"):
+            if token == lowered or token in lowered:
+                score += 6
+        return score
+
+    suggested = None
+    if profiles:
+        if task_type == "regression":
+            numeric = [
+                p for p in profiles
+                if pd.api.types.is_numeric_dtype(eng.df[p["name"]])
+            ]
+            pool = numeric or profiles
+        elif task_type == "classification":
+            pool = [
+                p for p in profiles
+                if not pd.api.types.is_numeric_dtype(eng.df[p["name"]]) or p["unique"] <= 50
+            ] or profiles
+        else:
+            pool = profiles
+        suggested = max(pool, key=lambda p: (name_score(p["name"]), -p["unique"]))["name"]
+
+    return {"columns": columns, "profiles": profiles, "suggested_label": suggested}
+
+
+def _route_followup_from_review(state: "AgentState") -> str | None:
+    msg = (state.get("user_message") or "").lower()
+    if not msg:
+        return None
+
+    if any(k in msg for k in ("preprocess", "preprocessing", "stem", "stemming", "lemma", "lemmat", "stopword", "lowercase")):
+        state["phase"]["stage"] = "preprocess_config"
+        return "preprocess_config_node"
+    if any(k in msg for k in ("vector", "vectorization", "tf-idf", "tfidf", "bag of words", "embedding", "embeddings", "ngram", "n-gram")):
+        state["phase"]["stage"] = "vector_config"
+        return "vector_config_node"
+    if any(k in msg for k in ("label", "model", "train", "test size", "fold", "classifier", "regressor", "random forest", "svm", "logistic", "ridge")):
+        state["phase"]["stage"] = "model_config"
+        return "model_config_node"
+    if any(k in msg for k in ("cluster", "clustering", "kmeans", "k-means", "group similar")):
+        state["task_type"] = "clustering"
+        state["phase"]["stage"] = "clustering_config"
+        return "clustering_config_node"
+    if any(k in msg for k in ("classify", "classification", "predict", "regression", "start over", "new task")):
+        state["phase"]["stage"] = "task_selection"
+        return "task_selection_node"
+    return None
 # ===================== Agent State ===================== #
 
 class PipelinePhase(TypedDict, total=False):
@@ -42,6 +147,8 @@ class PipelinePhase(TypedDict, total=False):
         "vector_run",
         "model_config",
         "model_run",
+        "clustering_config",
+        "clustering_run",
         "results_explained",
     ]
 
@@ -181,7 +288,7 @@ def explanation_node(state: AgentState) -> AgentState:
         "in clear, friendly language.\n\n"
         "User question:\n"
         f"{user_msg}\n\n"
-        "Please answer in 1–3 short paragraphs, optionally with a simple example. "
+        "Please answer in 1-3 short paragraphs, optionally with a simple example. "
         "Avoid code unless the user explicitly asked for code. "
         "Do not ask the user questions back; just explain.\n"
     )
@@ -216,7 +323,6 @@ def task_selection_node(state: AgentState) -> AgentState:
         [HumanMessage(content=agent_prompts.build_task_selection_prompt(user_msg))]
     )
 
-    # Store decision
     if decision.task_type == "unknown":
         state["task_type"] = None
     else:
@@ -232,7 +338,10 @@ def task_selection_node(state: AgentState) -> AgentState:
         "clarification_question": decision.clarification_question,
     }
 
-    state["phase"]["stage"] = "preprocess_config"
+    if decision.task_type == "unknown" or decision.needs_clarification:
+        state["phase"]["stage"] = "task_selection"
+    else:
+        state["phase"]["stage"] = "preprocess_config"
     return state
 
 
@@ -445,6 +554,7 @@ def vector_run_node(state: AgentState) -> AgentState:
     method = eng.last_vector_method or "TF-IDF (word)"
     ngram = eng.last_vector_ngram or (1, 2)
     max_feat = eng.last_vector_max_features
+    label_context = _candidate_label_context(eng, state.get("task_type"))
 
     state["ui_intent"] = "vector_config_confirmed"
     state["ui_payload"] = {
@@ -452,9 +562,120 @@ def vector_run_node(state: AgentState) -> AgentState:
         "ngram_range": list(ngram),
         "max_features": max_feat,
         "task_type": state.get("task_type"),
+        "candidate_columns": label_context["columns"],
+        "column_profiles": label_context["profiles"],
+        "suggested_label": label_context["suggested_label"],
     }
 
-    state["phase"]["stage"] = "model_config"
+    if state.get("task_type") == "clustering":
+        state["phase"]["stage"] = "clustering_config"
+    else:
+        state["phase"]["stage"] = "model_config"
+    return state
+
+
+def clustering_config_node(state: AgentState) -> AgentState:
+    state = _ensure_defaults(state)
+    eng = state["english_state"]
+    decisions = state["decisions"]
+    user_msg = state.get("user_message", "")
+
+    n_rows = 0
+    if eng.df is not None and eng.csv_text_column:
+        n_rows = eng.df[eng.csv_text_column].dropna().shape[0]
+    elif eng.text:
+        n_rows = len([l for l in eng.text.splitlines() if l.strip()])
+
+    llm = _get_structured_llm(ClusteringConfigDecision)
+    if llm is None:
+        state["assistant_message"] = _NO_LLM_MSG
+        return state
+    decision: ClusteringConfigDecision = llm.invoke(
+        [
+            HumanMessage(
+                content=agent_prompts.build_clustering_config_prompt(
+                    user_message=user_msg,
+                    n_rows=n_rows,
+                    previous_config=decisions.get("clustering_config"),
+                )
+            )
+        ]
+    )
+    n_clusters = max(2, min(int(decision.n_clusters or 3), 20))
+    decisions["clustering_config"] = {
+        "n_clusters": n_clusters,
+        "explanation": decision.explanation,
+    }
+
+    state["ui_intent"] = "clustering_config_feedback"
+    state["ui_payload"] = {
+        "n_clusters": n_clusters,
+        "explanation": decision.explanation,
+        "needs_clarification": decision.needs_clarification,
+        "clarification_question": decision.clarification_question,
+        "ready_to_apply": decision.ready_to_apply,
+    }
+    state["phase"]["stage"] = "clustering_run" if decision.ready_to_apply else "clustering_config"
+    return state
+
+
+def clustering_run_node(state: AgentState) -> AgentState:
+    state = _ensure_defaults(state)
+    eng = state["english_state"]
+    decisions = state["decisions"]
+
+    vector_method = eng.last_vector_method or "TF-IDF (word)"
+    ngram = eng.last_vector_ngram or (1, 2)
+    max_feat = eng.last_vector_max_features or 5000
+    n_clusters = int(decisions.get("clustering_config", {}).get("n_clusters", 3))
+
+    try:
+        X, labels_for_display = unsup.build_X_from_state(
+            eng,
+            vector_method=vector_method,
+            ngram_range=tuple(ngram),
+            max_features=max_feat,
+        )
+        n_clusters = max(2, min(n_clusters, len(labels_for_display)))
+        result = unsup.run_kmeans(X, n_clusters=n_clusters, random_state=settings.get_seed())
+    except Exception as e:
+        state["ui_intent"] = "training_failed"
+        state["ui_payload"] = {"error": str(e)}
+        state["phase"]["stage"] = "clustering_config"
+        return state
+
+    export_df = pd.DataFrame(
+        {
+            "sample": labels_for_display,
+            "cluster": result.labels,
+        }
+    )
+    eng.last_cluster_export = export_df
+
+    cluster_sizes = {}
+    examples = {}
+    for cluster_id in sorted(set(int(x) for x in result.labels)):
+        mask = result.labels == cluster_id
+        cluster_sizes[str(cluster_id)] = int(mask.sum())
+        examples[str(cluster_id)] = [
+            labels_for_display[i]
+            for i, belongs in enumerate(mask)
+            if belongs
+        ][:5]
+
+    state["ui_intent"] = "clustering_summary"
+    state["ui_payload"] = {
+        "n_clusters": int(result.n_clusters),
+        "cluster_sizes": cluster_sizes,
+        "examples": examples,
+        "vectorization": {
+            "method": vector_method,
+            "ngram_range": list(ngram),
+            "max_features": max_feat,
+        },
+        "seed": settings.get_seed(),
+    }
+    state["phase"]["stage"] = "results_explained"
     return state
 
 
@@ -469,11 +690,8 @@ def model_config_node(state: AgentState) -> AgentState:
 
     user_msg = state.get("user_message", "").strip()
 
-    candidate_cols: List[str] = []
-    if eng.df is not None:
-        candidate_cols = list(eng.df.columns)
-        if eng.csv_text_column in candidate_cols:
-            candidate_cols.remove(eng.csv_text_column)
+    label_context = _candidate_label_context(eng, state.get("task_type"))
+    candidate_cols: List[str] = label_context["columns"]
 
     llm = _get_structured_llm(ModelConfigDecision)
     if llm is None:
@@ -485,6 +703,8 @@ def model_config_node(state: AgentState) -> AgentState:
                 content=agent_prompts.build_model_config_prompt(
                     user_message=user_msg,
                     candidate_columns=candidate_cols,
+                    candidate_profiles=label_context["profiles"],
+                    suggested_label=label_context["suggested_label"],
                     task_type=state.get("task_type"),
                 )
             )
@@ -494,12 +714,16 @@ def model_config_node(state: AgentState) -> AgentState:
     decisions["label_column"] = decision.label_column
     decisions["model_name"] = decision.model_name
     decisions["test_size"] = decision.test_size
+    decisions["cv_folds"] = max(2, min(int(decision.cv_folds or 5), 20))
+    decisions["auto_subset_size"] = max(0, int(decision.auto_subset_size or 0))
+    decisions["rf_estimators"] = max(10, min(int(decision.rf_estimators or 200), 2000))
 
     if not decision.label_column:
         # Needs clarification about label column
         state["ui_intent"] = "model_config_needs_clarification"
         state["ui_payload"] = {
             "candidate_columns": candidate_cols,
+            "suggested_label": label_context["suggested_label"],
             "explanation": decision.explanation,
             "needs_clarification": True,
             "clarification_question": decision.clarification_question
@@ -509,12 +733,24 @@ def model_config_node(state: AgentState) -> AgentState:
         state["phase"]["stage"] = "model_config"
         return state
 
+    if eng.df is not None and decision.label_column in eng.df.columns:
+        inferred_task = (
+            "regression"
+            if pd.api.types.is_numeric_dtype(eng.df[decision.label_column])
+            else "classification"
+        )
+        if decision.model_name not in sup.available_model_names(inferred_task):
+            decisions["model_name"] = "Auto"
+
     # Label column decided: proceed to training next
     state["ui_intent"] = "model_config_confirmed"
     state["ui_payload"] = {
         "label_column": decision.label_column,
-        "model_name": decision.model_name,
+        "model_name": decisions["model_name"],
         "test_size": decision.test_size,
+        "cv_folds": decisions["cv_folds"],
+        "auto_subset_size": decisions["auto_subset_size"],
+        "rf_estimators": decisions["rf_estimators"],
         "explanation": decision.explanation,
     }
 
@@ -544,6 +780,10 @@ def model_run_node(state: AgentState) -> AgentState:
     max_feat = eng.last_vector_max_features or 5000
     model_name = decisions.get("model_name", "Auto")
     test_size = float(decisions.get("test_size", 0.2))
+    cv_folds = int(decisions.get("cv_folds", 5))
+    auto_subset_size = int(decisions.get("auto_subset_size", 0)) or None
+    rf_estimators = int(decisions.get("rf_estimators", 200))
+    model_params = {"n_estimators": rf_estimators}
 
     try:
         result = sup.train_supervised_from_state(
@@ -555,12 +795,29 @@ def model_run_node(state: AgentState) -> AgentState:
             model_name=model_name,
             test_size=test_size,
             random_state=settings.get_seed(),
+            cv_folds=cv_folds,
+            auto_subset_size=auto_subset_size,
+            model_params=model_params,
         )
     except Exception as e:
         state["ui_intent"] = "training_failed"
         state["ui_payload"] = {"error": str(e)}
         state["phase"]["stage"] = "model_config"
         return state
+
+    eng.last_supervised_result = result
+    eng.last_supervised_context = {
+        "label_column": label_col,
+        "vector_method": vector_method,
+        "ngram_range": list(ngram),
+        "max_features": max_feat,
+        "test_size": test_size,
+        "seed": settings.get_seed(),
+        "cv_folds": cv_folds,
+        "auto_subset_size": auto_subset_size,
+        "model_params": model_params,
+        "source": "Agent Lab",
+    }
 
     # Prepare structured summary for renderer
     if result.task_type == "classification":
@@ -604,14 +861,10 @@ def render_message_node(state: AgentState) -> AgentState:
     payload = state.get("ui_payload", {}) or {}
     msg = ""
 
-    # Intents where we already have an LLM-generated explanation
     if intent == "task_selection_feedback":
         task_type = payload.get("task_type")
-        needs_clar = payload.get("needs_clarification")
-        clar_q = payload.get("clarification_question") or ""
 
         if task_type in ("classification", "regression", "clustering"):
-            # We already understood the task → short confirmation
             nice = {
                 "classification": "classify texts into categories (e.g. positive/negative, spam/not spam)",
                 "regression": "predict a numeric value from text (e.g. rating, score)",
@@ -619,102 +872,70 @@ def render_message_node(state: AgentState) -> AgentState:
             }
             desc = nice.get(task_type, task_type)
             msg = (
-                f"Great, I'll treat this as a **{task_type}** problem – i.e. we'll {desc}.\n\n"
+                f"Great, I'll treat this as a **{task_type}** problem, so we'll {desc}.\n\n"
                 "Next, I'll propose a preprocessing pipeline for your text. "
                 "If this isn't what you meant, just tell me."
             )
         else:
-            # We *don't* know yet → friendly open question
             msg = (
-                "Hi! 👋 What would you like to do with your text data?\n"
-                "For example, we can:\n"
-                "• classify texts (e.g. positive vs negative, spam vs not spam)\n"
-                "• predict a number from text (e.g. rating)\n"
-                "• group similar texts into clusters.\n"
+                "I can help once you choose the NLP task for this dataset.\n\n"
+                "Pick one of these:\n"
+                "- classify texts into categories\n"
+                "- predict a numeric value from text\n"
+                "- cluster similar texts together\n"
             )
-            if needs_clar and clar_q:
-                # Optionally append the model’s clarification question if you want
-                msg += "\n" + clar_q
-
-        state["assistant_message"] = msg
-
-
 
     elif intent == "preprocess_config_proposal":
-
-        msg = payload.get("explanation", "")
-
+        msg = _clean_direct_address(payload.get("explanation", ""))
         ready = payload.get("ready_to_apply", False)
-
         if not ready:
-
-            # Still in “tuning” mode
-
             if payload.get("needs_clarification") and payload.get("clarification_question"):
-
                 msg += "\n\n" + payload["clarification_question"]
-
             else:
-
-                msg += (
-
-                    "\n\nIf this looks good, just say so or tell me which steps you'd like to add/remove."
-
-                )
-
+                msg += "\n\nIf this looks good, say so or tell me which steps you'd like to add/remove."
         else:
-
-            # Finalized – don’t ask for more confirmation
-
             msg += (
-
-                "\n\nGot it – I'll use this preprocessing pipeline and apply it to a small "
-
-                "sample next so you can see a BEFORE/AFTER preview."
-
+                "\n\nGot it. I'll use this preprocessing pipeline and apply it to a small "
+                "sample next so you can see a before/after preview."
             )
-
-
 
     elif intent == "vector_config_feedback":
-
-        msg = payload.get("explanation", "")
-
+        msg = _clean_direct_address(payload.get("explanation", ""))
         ready = payload.get("ready_to_apply", False)
-
         if not ready:
-
             if payload.get("needs_clarification") and payload.get("clarification_question"):
-
                 msg += "\n\n" + payload["clarification_question"]
-
             else:
-
                 msg += (
-
                     "\n\nIf this vectorization setup looks OK, say 'OK' or 'go ahead'. "
-
-                    "If you prefer another method (Bag-of-Words, char n-grams, transformer embeddings), "
-
-                    "tell me."
-
+                    "If you prefer another method (Bag-of-Words, TF-IDF character n-grams, "
+                    "transformer embeddings), tell me."
                 )
-
         else:
-
-            # Already locked in; next turn will go to vector_run_node
-
             msg += (
-
-                "\n\nThese vectorization settings are now locked in. On the next step, "
-
-                "I'll move on to configuring the prediction model."
-
+                "\n\nThese vectorization settings are locked in. Next I'll move on to "
+                "configuring the prediction model."
             )
 
+    elif intent == "clustering_config_feedback":
+        msg = _clean_direct_address(payload.get("explanation", ""))
+        if payload.get("ready_to_apply"):
+            msg += (
+                f"\n\nI'll run K-Means with {payload.get('n_clusters', 3)} clusters "
+                "using the current vectorization settings."
+            )
+        elif payload.get("needs_clarification") and payload.get("clarification_question"):
+            msg += "\n\n" + payload["clarification_question"]
+        else:
+            msg += "\n\nIf this looks good, say 'go ahead', or tell me how many clusters you want to use."
 
-    # Intents that need a fresh LLM rendering based on JSON payload
-    elif intent in {"preprocess_preview", "vector_config_confirmed", "results_summary", "training_failed"}:
+    elif intent in {
+        "preprocess_preview",
+        "vector_config_confirmed",
+        "results_summary",
+        "clustering_summary",
+        "training_failed",
+    }:
         llm = _get_llm()
         if llm is None:
             state["assistant_message"] = _NO_LLM_MSG
@@ -724,8 +945,18 @@ def render_message_node(state: AgentState) -> AgentState:
         msg = resp.content
 
     elif intent == "model_config_needs_clarification":
-        msg = payload.get("explanation", "")
-        if payload.get("clarification_question"):
+        columns = payload.get("candidate_columns") or []
+        suggested = payload.get("suggested_label")
+        msg = _clean_direct_address(payload.get("explanation", "")).strip()
+        if columns:
+            choices = ", ".join(f"`{col}`" for col in columns)
+            suffix = f"\n\nAvailable label columns: {choices}."
+            if suggested:
+                suffix += f"\nMy best guess is `{suggested}`. Confirm that or name another column."
+            else:
+                suffix += "\nWhich one should I predict?"
+            msg = f"{msg}{suffix}" if msg else suffix.strip()
+        elif payload.get("clarification_question"):
             msg += "\n\n" + payload["clarification_question"]
         else:
             msg += "\n\nPlease specify exactly which column you'd like to predict."
@@ -734,14 +965,22 @@ def render_message_node(state: AgentState) -> AgentState:
         msg = (
             f"Great. I'll treat `{payload.get('label_column')}` as the label column.\n"
             f"Model choice: **{payload.get('model_name')}**. "
-            f"Test size: {payload.get('test_size', 0.2):.2f}.\n\n"
-            f"{payload.get('explanation', '')}\n\n"
+            f"Test size: {payload.get('test_size', 0.2):.2f}. "
+            f"CV folds: {payload.get('cv_folds', 5)}. "
+            f"Auto subset size: {payload.get('auto_subset_size', 0)}. "
+            f"Random forest trees: {payload.get('rf_estimators', 200)}.\n\n"
+            f"{_clean_direct_address(payload.get('explanation', ''))}\n\n"
             "I'll now train a model using your current preprocessing and vectorization settings "
             "and then explain the results."
         )
 
+    elif intent == "workflow_idle":
+        msg = (
+            "We are at the review step. Tell me what you want to adjust next: "
+            "preprocessing, vectorization, model or label settings, clustering, or start a new task."
+        )
+
     else:
-        # Generic fallback
         llm = _get_llm()
         if llm is None:
             state["assistant_message"] = _NO_LLM_MSG
@@ -751,17 +990,17 @@ def render_message_node(state: AgentState) -> AgentState:
         msg = resp.content
 
     state["assistant_message"] = msg
-
-    # Clear ui hints
     state["ui_intent"] = None
     state["ui_payload"] = {}
 
     return state
-
 def final_message_node(state: AgentState) -> AgentState:
     """
-    Last node before END. Just returns the state as-is.
+    Handle follow-up turns after a workflow has already produced results.
     """
+    state = _ensure_defaults(state)
+    state["ui_intent"] = "workflow_idle"
+    state["ui_payload"] = {}
     return state
 
 # ===================== Build graph ===================== #
@@ -783,6 +1022,8 @@ def build_agent_graph():
     graph.add_node("vector_run_node", vector_run_node)
     graph.add_node("model_config_node", model_config_node)
     graph.add_node("model_run_node", model_run_node)
+    graph.add_node("clustering_config_node", clustering_config_node)
+    graph.add_node("clustering_run_node", clustering_run_node)
     graph.add_node("render_message_node", render_message_node)
     graph.add_node("explanation_node", explanation_node)
     graph.add_node("final_message_node", final_message_node)
@@ -790,7 +1031,7 @@ def build_agent_graph():
     # Entry
     graph.set_entry_point("router")
 
-    # router’s conditional edges:
+    # router's conditional edges:
     def route_fn(state: AgentState) -> str:
         """
         Decide which node to go to next, based on state.phase.stage and
@@ -806,6 +1047,10 @@ def build_agent_graph():
 
         # 2) Normal stage-based routing
         stage = state["phase"]["stage"]
+        if stage == "results_explained":
+            followup_route = _route_followup_from_review(state)
+            if followup_route:
+                return followup_route
 
         if stage == "task_selection":
             return "task_selection_node"
@@ -821,6 +1066,10 @@ def build_agent_graph():
             return "model_config_node"
         elif stage == "model_run":
             return "model_run_node"
+        elif stage == "clustering_config":
+            return "clustering_config_node"
+        elif stage == "clustering_run":
+            return "clustering_run_node"
         elif stage == "results_explained":
             return "final_message_node"
         else:
@@ -838,6 +1087,8 @@ def build_agent_graph():
             "vector_run_node": "vector_run_node",
             "model_config_node": "model_config_node",
             "model_run_node": "model_run_node",
+            "clustering_config_node": "clustering_config_node",
+            "clustering_run_node": "clustering_run_node",
             "final_message_node": "final_message_node",
             "explanation_node": "explanation_node",
         },
@@ -853,6 +1104,8 @@ def build_agent_graph():
         "vector_run_node",
         "model_config_node",
         "model_run_node",
+        "clustering_config_node",
+        "clustering_run_node",
         "final_message_node",
     ]:
         graph.add_edge(node, "render_message_node")
@@ -864,4 +1117,5 @@ def build_agent_graph():
     graph.add_edge("render_message_node", END)
 
     return graph.compile()
+
 

@@ -46,7 +46,7 @@ class AgentTab(ctk.CTkFrame):
 
         title = ctk.CTkLabel(
             top_frame,
-            text="Agent Lab (LangGraph)",
+            text="Agent Lab",
             text_color="#6ea8fe",
             font=ctk.CTkFont(size=18, weight="bold"),
         )
@@ -54,7 +54,7 @@ class AgentTab(ctk.CTkFrame):
 
         self.phase_label = ctk.CTkLabel(
             top_frame,
-            text="Stage: task_selection",
+            text="Stage: Choose task",
             text_color="#aaaaaa",
             font=ctk.CTkFont(size=12),
         )
@@ -121,12 +121,10 @@ class AgentTab(ctk.CTkFrame):
             bubble_color = "#175ea8"  # blue-ish
             anchor = "e"
             justify = "right"
-            text_prefix = "You"
         else:
             bubble_color = "#242424"  # dark gray
             anchor = "w"
             justify = "left"
-            text_prefix = "Agent Lab"
 
         bubble = ctk.CTkFrame(
             container,
@@ -144,7 +142,7 @@ class AgentTab(ctk.CTkFrame):
 
         label = ctk.CTkLabel(
             bubble,
-            text=f"{text_prefix}:\n{text}",
+            text=text,
             text_color="white",
             font=("Consolas", 11),
             justify=justify,
@@ -153,6 +151,11 @@ class AgentTab(ctk.CTkFrame):
         label.pack(padx=8, pady=6)
 
         # Autoscroll to bottom after a short delay
+        self.after(50, self.scroll_to_bottom)
+        return label
+
+    def update_message(self, label, text: str):
+        label.configure(text=text)
         self.after(50, self.scroll_to_bottom)
 
     def scroll_to_bottom(self):
@@ -164,41 +167,33 @@ class AgentTab(ctk.CTkFrame):
 
     def update_phase_label(self):
         stage = self.current_phase.get("stage", "task_selection")
-        self.phase_label.configure(text=f"Stage: {stage}")
+        labels = {
+            "task_selection": "Choose task",
+            "preprocess_config": "Preprocess",
+            "preprocess_run": "Preprocess preview",
+            "vector_config": "Vectorize",
+            "vector_run": "Vectorization set",
+            "model_config": "Train model",
+            "model_run": "Training",
+            "clustering_config": "Cluster",
+            "clustering_run": "Clustering",
+            "results_explained": "Review results",
+            "idle": "Idle",
+        }
+        self.phase_label.configure(text=f"Stage: {labels.get(stage, stage)}")
 
     # ================== AGENT CONTROL ================== #
 
     def agent_greeting(self):
         """
-        Run a first turn where the agent greets the user and explains what it can do.
-        We fake a simple 'start' message from the user to trigger task_selection_node.
+        Show a pure greeting without advancing the LangGraph state.
         """
-        agent_state: AgentState = {
-            "user_message": "Hey!",  # simple placeholder
-            "assistant_message": "",
-            "english_state": self.state,
-            "phase": self.current_phase,
-            "task_type": self.current_task_type,
-            "decisions": self.decisions,
-        }
-
-        def _work():
-            return self.graph.invoke(agent_state)
-
-        def _on_done(new_state):
-            self.state = new_state["english_state"]
-            self.current_phase = new_state.get("phase", self.current_phase)
-            self.current_task_type = new_state.get("task_type", self.current_task_type)
-            self.decisions = new_state.get("decisions", self.decisions)
-            self.update_phase_label()
-            msg = new_state.get("assistant_message", "").strip()
-            if msg:
-                self.add_message("agent", msg)
-
-        def _on_error(exc):
-            self.add_message("agent", f"Could not start Agent Lab:\n{exc}")
-
-        self.runner.run(_work, on_done=_on_done, on_error=_on_error)
+        self.update_phase_label()
+        self.add_message(
+            "agent",
+            "Hi. Tell me what you want to do with the loaded text data: classify texts, "
+            "predict a numeric value, or cluster similar texts. I will guide the workflow step by step.",
+        )
 
     def reset_agent(self):
         """
@@ -211,16 +206,6 @@ class AgentTab(ctk.CTkFrame):
         self.current_phase = {"stage": "task_selection"}
         self.current_task_type = None
         self.decisions = {}
-
-        # Optionally clear some config in EnglishState (defensive checks)
-        if hasattr(self.state, "pipeline_config"):
-            self.state.pipeline_config = {}
-        if hasattr(self.state, "last_vector_method"):
-            self.state.last_vector_method = None
-        if hasattr(self.state, "last_vector_ngram"):
-            self.state.last_vector_ngram = None
-        if hasattr(self.state, "last_vector_max_features"):
-            self.state.last_vector_max_features = None
 
         # Clear chat
         for child in self.chat_frame.winfo_children():
@@ -242,6 +227,7 @@ class AgentTab(ctk.CTkFrame):
 
         self.input_box.delete("1.0", "end")
         self.add_message("user", user_msg)
+        thinking_label = self.add_message("agent", "Thinking...")
         self._send_btn.configure(state="disabled", text="…")
 
         agent_state: AgentState = {
@@ -265,12 +251,12 @@ class AgentTab(ctk.CTkFrame):
             self.update_phase_label()
             msg = new_state.get("assistant_message", "").strip()
             if msg:
-                self.add_message("agent", msg)
+                self.update_message(thinking_label, msg)
             else:
-                self.add_message("agent", "(no response)")
+                self.update_message(thinking_label, "(no response)")
 
         def _on_error(exc):
             self._send_btn.configure(state="normal", text="Send")
-            self.add_message("agent", f"Agent Lab error:\n`{exc}`")
+            self.update_message(thinking_label, f"Agent Lab error:\n`{exc}`")
 
         self.runner.run(_work, on_done=_on_done, on_error=_on_error)

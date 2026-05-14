@@ -581,7 +581,7 @@ class ReportExportDialog(ctk.CTkToplevel):
         super().__init__(parent)
         self.parent = parent
         self.title("Export Report")
-        self.geometry("430x230")
+        self.geometry("520x330")
         self.resizable(False, False)
         self.grab_set()
 
@@ -617,22 +617,27 @@ class ReportExportDialog(ctk.CTkToplevel):
             command=self._browse,
         ).grid(row=0, column=1)
 
-        buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.pack(fill="x", padx=16, pady=(2, 16))
+        buttons = ctk.CTkFrame(self, fg_color="transparent", height=52)
+        buttons.pack(fill="x", padx=16, pady=(8, 18))
+        buttons.pack_propagate(False)
         ctk.CTkButton(
             buttons,
             text="Cancel",
+            width=120,
+            height=38,
             fg_color="#555555",
             hover_color="#444444",
             command=self.destroy,
-        ).pack(side="right", padx=(8, 0))
+        ).pack(side="right", padx=(10, 0), pady=7)
         ctk.CTkButton(
             buttons,
             text="Export",
+            width=120,
+            height=38,
             fg_color="#0078ff",
             hover_color="#005dc1",
             command=self._export,
-        ).pack(side="right")
+        ).pack(side="right", pady=7)
 
         self._sync_default_path()
 

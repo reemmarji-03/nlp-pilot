@@ -43,6 +43,7 @@ class SettingsWindow(ctk.CTkToplevel):
             "anthropic": "Anthropic",
         }.get(self._data.get("active_provider", "ollama"), "Ollama")
         self._tabs.set(active_tab)
+        self._refresh_ollama_models(silent=True)
 
         seed_row = ctk.CTkFrame(self, fg_color="transparent")
         seed_row.pack(fill="x", padx=20, pady=(0, 16))
@@ -191,8 +192,9 @@ class SettingsWindow(ctk.CTkToplevel):
     def _toggle_show(entry: ctk.CTkEntry) -> None:
         entry.configure(show="" if entry.cget("show") == "*" else "*")
 
-    def _refresh_ollama_models(self) -> None:
+    def _refresh_ollama_models(self, silent: bool = False) -> None:
         url = self._ollama_url.get().rstrip("/")
+        current = self._ollama_model.get()
 
         def _worker():
             try:
@@ -203,11 +205,11 @@ class SettingsWindow(ctk.CTkToplevel):
                     def _update():
                         if self.winfo_exists():
                             self._ollama_model.configure(values=models)
-                            self._ollama_model.set(models[0])
+                            self._ollama_model.set(current if current in models else models[0])
                     self.after(0, _update)
             except Exception as exc:
                 def _error(e=exc):
-                    if self.winfo_exists():
+                    if self.winfo_exists() and not silent:
                         messagebox.showerror("Ollama Error", f"Could not fetch models:\n{e}", parent=self)
                 self.after(0, _error)
 
@@ -245,7 +247,7 @@ class SettingsWindow(ctk.CTkToplevel):
         def _worker():
             try:
                 from langchain_openai import ChatOpenAI
-                from langchain.schema import HumanMessage
+                from langchain.messages import HumanMessage
                 llm = ChatOpenAI(api_key=key, model=model, temperature=0, max_tokens=1)
                 llm.invoke([HumanMessage(content="hi")])
                 def _ok():
@@ -271,7 +273,7 @@ class SettingsWindow(ctk.CTkToplevel):
         def _worker():
             try:
                 from langchain_anthropic import ChatAnthropic
-                from langchain.schema import HumanMessage
+                from langchain.messages import HumanMessage
                 llm = ChatAnthropic(api_key=key, model=model, temperature=0, max_tokens=1)
                 llm.invoke([HumanMessage(content="hi")])
                 def _ok():

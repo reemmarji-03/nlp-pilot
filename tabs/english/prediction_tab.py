@@ -50,6 +50,14 @@ def clusterize(points, centers):
     return clusters
 
 
+def cluster_labels(points, centers):
+    labels = []
+    for point in points:
+        dists = [euclid_dist(point, c) for c in centers]
+        labels.append(int(np.argmin(dists)))
+    return labels
+
+
 def update_centroids(clusters):
     new_centers = []
     for cluster_points in clusters.values():
@@ -167,6 +175,7 @@ class PredictionTab(ctk.CTkFrame):
         self.centroids = []
         self.centroid_ids = []
         self.clusters = {}
+        self.cluster_assignments = []
         self.iteration = 0
         self.max_iterations = 30
         self.tolerance = 1e-3
@@ -445,6 +454,9 @@ class PredictionTab(ctk.CTkFrame):
         SupervisedSettingsWindow(self)
 
     def open_supervised_export_dialog(self):
+        if self.last_supervised_result is None and self.state.last_supervised_result is not None:
+            self.last_supervised_result = self.state.last_supervised_result
+            self.last_supervised_context = self.state.last_supervised_context
         if self.last_supervised_result is None:
             messagebox.showwarning("Warning", "Train a supervised model first.")
             return
@@ -642,14 +654,15 @@ class PredictionTab(ctk.CTkFrame):
             self._clear_supervised_plot()
 
     def export_supervised_json(self, path: str | None = None):
-        result = self.last_supervised_result
+        result = self.last_supervised_result or self.state.last_supervised_result
         if result is None:
             messagebox.showwarning("Warning", "Train a supervised model first.")
             return
+        context = self.last_supervised_context or self.state.last_supervised_context
 
         payload = {
-            "metadata": run_metadata(self.last_supervised_context),
-            "context": self.last_supervised_context,
+            "metadata": run_metadata(context),
+            "context": context,
             "task_type": result.task_type,
             "model_name": result.model_name,
             "metrics": _json_safe(result.metrics),
@@ -675,7 +688,7 @@ class PredictionTab(ctk.CTkFrame):
             messagebox.showerror("Export error", f"Could not save JSON:\n{exc}")
 
     def export_supervised_predictions_csv(self, path: str | None = None):
-        result = self.last_supervised_result
+        result = self.last_supervised_result or self.state.last_supervised_result
         if result is None:
             messagebox.showwarning("Warning", "Train a supervised model first.")
             return
@@ -1115,7 +1128,10 @@ class PredictionTab(ctk.CTkFrame):
         self._plot_cluster_pca(X, result.labels)
 
     def export_clusters_csv(self):
-        if self.last_cluster_export is None:
+        export_df = self.last_cluster_export
+        if export_df is None:
+            export_df = self.state.last_cluster_export
+        if export_df is None:
             messagebox.showwarning("Warning", "Run static clustering first.")
             return
         path = filedialog.asksaveasfilename(
@@ -1127,7 +1143,7 @@ class PredictionTab(ctk.CTkFrame):
         if not path:
             return
         try:
-            self.last_cluster_export.to_csv(path, index=False, encoding="utf-8")
+            export_df.to_csv(path, index=False, encoding="utf-8")
         except Exception as exc:
             messagebox.showerror("Export error", f"Could not save CSV:\n{exc}")
 
@@ -1179,6 +1195,7 @@ class PredictionTab(ctk.CTkFrame):
         self.centroids.clear()
         self.centroid_ids.clear()
         self.clusters.clear()
+        self.cluster_assignments = []
         self.iteration = 0
         self.animating = True
         self.k = k
@@ -1234,8 +1251,12 @@ class PredictionTab(ctk.CTkFrame):
             self.animating = False
             return
 
-        # Cluster assignment
-        self.clusters = clusterize(self.points, self.centroids)
+        # Cluster assignment. Keep labels by point index so duplicate PCA
+        # coordinates still color every drawn point correctly.
+        self.cluster_assignments = cluster_labels(self.points, self.centroids)
+        self.clusters = {i: [] for i in range(len(self.centroids))}
+        for point, cluster_idx in zip(self.points, self.cluster_assignments):
+            self.clusters[cluster_idx].append(point)
 
         # Compute new centroids
         new_centroids = update_centroids(self.clusters)
@@ -1272,6 +1293,7 @@ class PredictionTab(ctk.CTkFrame):
             self.iteration += 1
 
             if centroids_converged(self.old_centroids, self.new_centroids, self.tolerance):
+                self._color_points_by_cluster()
                 self.cluster_summary_box.insert(
                     "end", f"Converged after {self.iteration} iterations.\n"
                 )
@@ -1283,17 +1305,11 @@ class PredictionTab(ctk.CTkFrame):
                 self.after(200, self._kmeans_iteration_step)
 
     def _color_points_by_cluster(self):
-        point_to_cluster = {}
-        for cluster_idx, pts in self.clusters.items():
-            for p in pts:
-                try:
-                    idx = self.points.index(p)
-                    point_to_cluster[idx] = cluster_idx
-                except ValueError:
-                    pass
-
         for idx, pid in enumerate(self.point_ids):
-            c_idx = point_to_cluster.get(idx, None)
+            if idx < len(getattr(self, "cluster_assignments", [])):
+                c_idx = self.cluster_assignments[idx]
+            else:
+                c_idx = None
             if c_idx is None:
                 color = "gray"
             else:
@@ -1598,7 +1614,7 @@ class TopicExportDialog(ctk.CTkToplevel):
         super().__init__(parent)
         self.parent = parent
         self.title("Export Topics")
-        self.geometry("450x230")
+        self.geometry("520x330")
         self.resizable(False, False)
         self.grab_set()
         self._build_ui()
@@ -1636,22 +1652,27 @@ class TopicExportDialog(ctk.CTkToplevel):
             command=self._browse,
         ).grid(row=0, column=1)
 
-        buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.pack(fill="x", padx=16, pady=(2, 16))
+        buttons = ctk.CTkFrame(self, fg_color="transparent", height=52)
+        buttons.pack(fill="x", padx=16, pady=(8, 18))
+        buttons.pack_propagate(False)
         ctk.CTkButton(
             buttons,
             text="Cancel",
+            width=120,
+            height=38,
             fg_color="#555555",
             hover_color="#444444",
             command=self.destroy,
-        ).pack(side="right", padx=(8, 0))
+        ).pack(side="right", padx=(10, 0), pady=7)
         ctk.CTkButton(
             buttons,
             text="Export",
+            width=120,
+            height=38,
             fg_color="#0078ff",
             hover_color="#005dc1",
             command=self._export,
-        ).pack(side="right")
+        ).pack(side="right", pady=7)
         self._sync_default_path()
 
     def _is_json(self) -> bool:
@@ -1785,7 +1806,7 @@ class SupervisedExportDialog(ctk.CTkToplevel):
         super().__init__(parent)
         self.parent = parent
         self.title("Export Results")
-        self.geometry("450x230")
+        self.geometry("520x330")
         self.resizable(False, False)
         self.grab_set()
         self._build_ui()
@@ -1823,22 +1844,27 @@ class SupervisedExportDialog(ctk.CTkToplevel):
             command=self._browse,
         ).grid(row=0, column=1)
 
-        buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.pack(fill="x", padx=16, pady=(2, 16))
+        buttons = ctk.CTkFrame(self, fg_color="transparent", height=52)
+        buttons.pack(fill="x", padx=16, pady=(8, 18))
+        buttons.pack_propagate(False)
         ctk.CTkButton(
             buttons,
             text="Cancel",
+            width=120,
+            height=38,
             fg_color="#555555",
             hover_color="#444444",
             command=self.destroy,
-        ).pack(side="right", padx=(8, 0))
+        ).pack(side="right", padx=(10, 0), pady=7)
         ctk.CTkButton(
             buttons,
             text="Export",
+            width=120,
+            height=38,
             fg_color="#0078ff",
             hover_color="#005dc1",
             command=self._export,
-        ).pack(side="right")
+        ).pack(side="right", pady=7)
         self._sync_default_path()
 
     def _is_predictions(self) -> bool:
