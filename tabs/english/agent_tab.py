@@ -13,7 +13,7 @@ class AgentTab(ctk.CTkFrame):
     """
 
     def __init__(self, parent, state: EnglishState):
-        super().__init__(parent, fg_color="#0f0f0f")
+        super().__init__(parent, fg_color=("#f0f0f0", "#0f0f0f"))
         self.state = state
 
         # LangGraph app
@@ -47,7 +47,7 @@ class AgentTab(ctk.CTkFrame):
         title = ctk.CTkLabel(
             top_frame,
             text="Agent Lab",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=18, weight="bold"),
         )
         title.grid(row=0, column=0, sticky="w")
@@ -55,7 +55,7 @@ class AgentTab(ctk.CTkFrame):
         self.phase_label = ctk.CTkLabel(
             top_frame,
             text="Stage: Choose task",
-            text_color="#aaaaaa",
+            text_color=("#666666", "#aaaaaa"),
             font=ctk.CTkFont(size=12),
         )
         self.phase_label.grid(row=0, column=1, sticky="e", padx=(10, 0))
@@ -63,20 +63,20 @@ class AgentTab(ctk.CTkFrame):
         # Chat area: scrollable frame with bubbles
         self.chat_frame = ctk.CTkScrollableFrame(
             self,
-            fg_color="#101010",
+            fg_color=("#f5f5f5", "#101010"),
         )
         self.chat_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 5))
 
         # Input + send + reset
-        input_frame = ctk.CTkFrame(self, fg_color="#121212")
+        input_frame = ctk.CTkFrame(self, fg_color=("#e8e8e8", "#121212"))
         input_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
         input_frame.columnconfigure(0, weight=1)
 
         self.input_box = ctk.CTkTextbox(
             input_frame,
             height=50,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 11),
             wrap="word",
         )
@@ -98,8 +98,9 @@ class AgentTab(ctk.CTkFrame):
         reset_btn = ctk.CTkButton(
             btn_frame,
             text="Reset",
-            fg_color="#333333",
-            hover_color="#444444",
+            fg_color=("#c0c0c0", "#333333"),
+            hover_color=("#b0b0b0", "#444444"),
+            text_color=("#111111", "white"),
             command=self.reset_agent,
             width=70,
         )
@@ -118,17 +119,19 @@ class AgentTab(ctk.CTkFrame):
 
         # Bubble styling
         if role == "user":
-            bubble_color = "#175ea8"  # blue-ish
+            bubble_fg = ("#0078ff", "#175ea8")
+            text_col = ("white", "white")
             anchor = "e"
             justify = "right"
         else:
-            bubble_color = "#242424"  # dark gray
+            bubble_fg = ("#e4e4e4", "#242424")
+            text_col = ("#111111", "white")
             anchor = "w"
             justify = "left"
 
         bubble = ctk.CTkFrame(
             container,
-            fg_color=bubble_color,
+            fg_color=bubble_fg,
             corner_radius=10,
         )
 
@@ -143,7 +146,7 @@ class AgentTab(ctk.CTkFrame):
         label = ctk.CTkLabel(
             bubble,
             text=text,
-            text_color="white",
+            text_color=text_col,
             font=("Consolas", 11),
             justify=justify,
             wraplength=600,

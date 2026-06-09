@@ -21,7 +21,7 @@ class VectorTab(ctk.CTkFrame):
     """
 
     def __init__(self, parent, state: EnglishState):
-        super().__init__(parent, fg_color="#0f0f0f")
+        super().__init__(parent, fg_color=("#f0f0f0", "#0f0f0f"))
         self.state = state
 
         # widgets
@@ -53,13 +53,13 @@ class VectorTab(ctk.CTkFrame):
         self.rowconfigure(0, weight=1)
 
         # Sidebar
-        sidebar = ctk.CTkFrame(self, fg_color="#121212", corner_radius=10)
+        sidebar = ctk.CTkFrame(self, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
         ctk.CTkLabel(
             sidebar,
             text="Vectorization Lab",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=18, weight="bold")
         ).pack(pady=(10, 5))
 
@@ -67,7 +67,7 @@ class VectorTab(ctk.CTkFrame):
         ctk.CTkLabel(
             sidebar,
             text="Method:",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13)
         ).pack(anchor="w", padx=10, pady=(10, 0))
 
@@ -86,17 +86,17 @@ class VectorTab(ctk.CTkFrame):
         self.method_combo.pack(padx=10, pady=(2, 10))
 
         # --- n-gram range ---
-        ngram_frame = ctk.CTkFrame(sidebar, fg_color="#121212")
+        ngram_frame = ctk.CTkFrame(sidebar, fg_color=("#e8e8e8", "#121212"))
         ngram_frame.pack(fill="x", padx=10, pady=(0, 5))
 
         ctk.CTkLabel(
             ngram_frame,
             text="n-gram range (min, max):",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13)
         ).pack(anchor="w")
 
-        row_ng = ctk.CTkFrame(ngram_frame, fg_color="#121212")
+        row_ng = ctk.CTkFrame(ngram_frame, fg_color=("#e8e8e8", "#121212"))
         row_ng.pack(fill="x", pady=(2, 0))
 
         self.ng_min_entry = ctk.CTkEntry(row_ng, width=40)
@@ -111,7 +111,7 @@ class VectorTab(ctk.CTkFrame):
         ctk.CTkLabel(
             sidebar,
             text="Max features:",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13)
         ).pack(anchor="w", padx=10, pady=(10, 0))
 
@@ -132,8 +132,8 @@ class VectorTab(ctk.CTkFrame):
         self._pca_btn = ctk.CTkButton(
             sidebar,
             text="PCA 2D projection",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.plot_sentence_projection
         )
         self._pca_btn.pack(fill="x", padx=10, pady=(0, 15))
@@ -144,15 +144,15 @@ class VectorTab(ctk.CTkFrame):
         ctk.CTkLabel(
             sidebar,
             text="Similarity sandbox:",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=14, weight="bold")
         ).pack(anchor="w", padx=10, pady=(5, 0))
 
         self.sent1_box = ctk.CTkTextbox(
             sidebar,
             height=40,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 11),
             wrap="word"
         )
@@ -162,8 +162,8 @@ class VectorTab(ctk.CTkFrame):
         self.sent2_box = ctk.CTkTextbox(
             sidebar,
             height=40,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 11),
             wrap="word"
         )
@@ -181,18 +181,18 @@ class VectorTab(ctk.CTkFrame):
         self.similarity_label = ctk.CTkLabel(
             sidebar,
             text="Similarity: –",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13)
         )
         self.similarity_label.pack(anchor="w", padx=10, pady=(0, 10))
 
         # ---------------- Main output: Tabview ----------------
-        right = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=10)
+        right = ctk.CTkFrame(self, fg_color=("#ffffff", "#1a1a1a"), corner_radius=10)
         right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
 
-        tabview = ctk.CTkTabview(right, fg_color="#1a1a1a")
+        tabview = ctk.CTkTabview(right, fg_color=("#ffffff", "#1a1a1a"))
         tabview.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         summary_tab = tabview.add("Summary")
@@ -202,8 +202,8 @@ class VectorTab(ctk.CTkFrame):
         # Summary box
         self.summary_box = ctk.CTkTextbox(
             summary_tab,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 12),
             wrap="word"
         )
@@ -212,7 +212,7 @@ class VectorTab(ctk.CTkFrame):
         # Features area ✅ (container for cards)
         self.features_container = ctk.CTkFrame(
             features_tab,
-            fg_color="#1a1a1a",
+            fg_color=("#ffffff", "#1a1a1a"),
             corner_radius=10,
         )
         self.features_container.pack(fill="both", expand=True, padx=10, pady=10)
@@ -222,7 +222,7 @@ class VectorTab(ctk.CTkFrame):
             self.features_container.grid_columnconfigure(col, weight=1)
 
         # Plot area
-        self.plot_container = ctk.CTkFrame(plot_tab, fg_color="#1a1a1a")
+        self.plot_container = ctk.CTkFrame(plot_tab, fg_color=("#ffffff", "#1a1a1a"))
         self.plot_container.pack(fill="both", expand=True, padx=10, pady=10)
 
     # ---------------- Helpers ----------------
@@ -400,7 +400,7 @@ class VectorTab(ctk.CTkFrame):
         if not res.is_sparse:
             card = ctk.CTkFrame(
                 self.features_container,
-                fg_color="#222222",
+                fg_color=("#ebebeb", "#222222"),
                 corner_radius=10
             )
             card.grid(row=0, column=0, sticky="nsew", padx=5, pady=5, columnspan=3)
@@ -426,14 +426,14 @@ class VectorTab(ctk.CTkFrame):
             if num_samples == 0:
                 card = ctk.CTkFrame(
                     self.features_container,
-                    fg_color="#222222",
+                    fg_color=("#ebebeb", "#222222"),
                     corner_radius=10
                 )
                 card.grid(row=0, column=0, sticky="nsew", padx=5, pady=5, columnspan=3)
                 ctk.CTkLabel(
                     card,
                     text="No non-empty rows to show top features.",
-                    text_color="#dddddd",
+                    text_color=("#222222", "#dddddd"),
                     font=ctk.CTkFont(size=13)
                 ).pack(padx=10, pady=10)
                 return
@@ -455,7 +455,7 @@ class VectorTab(ctk.CTkFrame):
             for col_idx, idx in enumerate(indices):
                 card = ctk.CTkFrame(
                     self.features_container,
-                    fg_color="#222222",
+                    fg_color=("#ebebeb", "#222222"),
                     corner_radius=10
                 )
                 card.grid(row=1, column=col_idx, sticky="nsew", padx=5, pady=5)
@@ -464,7 +464,7 @@ class VectorTab(ctk.CTkFrame):
                 ctk.CTkLabel(
                     card,
                     text=f"Row {idx + 1}",
-                    text_color="#6ea8fe",
+                    text_color=("#0062cc", "#6ea8fe"),
                     font=ctk.CTkFont(size=13, weight="bold")
                 ).pack(anchor="w", padx=8, pady=(6, 2))
 
@@ -477,7 +477,7 @@ class VectorTab(ctk.CTkFrame):
                 ctk.CTkLabel(
                     card,
                     text=snippet,
-                    text_color="#dddddd",
+                    text_color=("#222222", "#dddddd"),
                     font=ctk.CTkFont(size=11),
                     wraplength=220,
                     justify="left"
@@ -489,7 +489,7 @@ class VectorTab(ctk.CTkFrame):
                 ctk.CTkLabel(
                     card,
                     text="Top features:",
-                    text_color="#ffffff",
+                    text_color=("#111111", "#ffffff"),
                     font=ctk.CTkFont(size=12, weight="bold")
                 ).pack(anchor="w", padx=8, pady=(2, 0))
 
@@ -500,8 +500,8 @@ class VectorTab(ctk.CTkFrame):
                 features_box = ctk.CTkTextbox(
                     card,
                     height=120,
-                    fg_color="#1a1a1a",
-                    text_color="white",
+                    fg_color=("#ffffff", "#1a1a1a"),
+                    text_color=("#111111", "white"),
                     font=("Consolas", 11),
                     wrap="word"
                 )
@@ -513,7 +513,7 @@ class VectorTab(ctk.CTkFrame):
             # Single-document case: one wide card
             card = ctk.CTkFrame(
                 self.features_container,
-                fg_color="#222222",
+                fg_color=("#ebebeb", "#222222"),
                 corner_radius=10
             )
             card.grid(row=0, column=0, sticky="nsew", padx=5, pady=5, columnspan=3)

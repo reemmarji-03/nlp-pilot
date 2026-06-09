@@ -19,10 +19,11 @@ from core import english_nlp as enlp
 from core.english_state import EnglishState
 from core.data_quality import csv_stats, txt_stats
 from core.run_metadata import run_metadata
+from core import theme_manager as theme
 
 class DocumentToolsTab(ctk.CTkFrame):
     def __init__(self, parent, state: EnglishState, on_state_changed):
-        super().__init__(parent, fg_color="#0f0f0f")
+        super().__init__(parent, fg_color=("#f0f0f0", "#0f0f0f"))
         self.state = state
 
         self.file_label = None
@@ -39,13 +40,13 @@ class DocumentToolsTab(ctk.CTkFrame):
         self.rowconfigure(0, weight=1)
 
         # Sidebar
-        sidebar = ctk.CTkFrame(self, fg_color="#121212", corner_radius=10)
+        sidebar = ctk.CTkFrame(self, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
         ctk.CTkLabel(
             sidebar,
             text="English NLP Tools",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=18, weight="bold")
         ).pack(pady=(15, 20))
 
@@ -59,26 +60,26 @@ class DocumentToolsTab(ctk.CTkFrame):
         self.add_button(sidebar, "Export Report", self.open_export_report_dialog)
 
         # Output area
-        output_frame = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=10)
+        output_frame = ctk.CTkFrame(self, fg_color=("#ffffff", "#1a1a1a"), corner_radius=10)
         output_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
 
         self.file_label = ctk.CTkLabel(
             output_frame,
             text="No file loaded",
             anchor="w",
-            text_color="#6ea8fe",
-            fg_color="#1a1a1a",
+            text_color=("#0062cc", "#6ea8fe"),
+            fg_color=("#ffffff", "#1a1a1a"),
             font=ctk.CTkFont(size=12, weight="bold")
         )
         self.file_label.pack(anchor="w", padx=10, pady=(6, 2))
 
-        self.output_container = ctk.CTkFrame(output_frame, fg_color="#1a1a1a")
+        self.output_container = ctk.CTkFrame(output_frame, fg_color=("#ffffff", "#1a1a1a"))
         self.output_container.pack(fill="both", expand=True, padx=10, pady=(0,10))
 
         self.output = ctk.CTkTextbox(
             self.output_container,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 13),
             wrap="word"
         )
@@ -95,7 +96,8 @@ class DocumentToolsTab(ctk.CTkFrame):
             hover_color="#005dc1",
             corner_radius=6,
             height=38,
-            font=ctk.CTkFont(size=14)
+            font=ctk.CTkFont(size=14),
+            text_color="white",
         ).pack(fill="x", padx=10, pady=6)
 
     # ---------------- Helpers ----------------
@@ -394,7 +396,7 @@ class DocumentToolsTab(ctk.CTkFrame):
             top_n=20,
             remove_stopwords=True,
         )
-        fig = enlp.build_word_freq_figure(freq, title="Top 20 Words", dark=True)
+        fig = enlp.build_word_freq_figure(freq, title="Top 20 Words", dark=theme.is_dark())
         self.show_chart(fig)
 
     def open_export_report_dialog(self):
@@ -536,8 +538,8 @@ class DocumentToolsTab(ctk.CTkFrame):
         # Recreate textbox
         self.output = ctk.CTkTextbox(
             self.output_container,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 13),
             wrap="word"
         )
@@ -560,8 +562,8 @@ class DocumentToolsTab(ctk.CTkFrame):
 
         self.output = ctk.CTkTextbox(
             self.output_container,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 13),
             wrap="word",
             height=200,
@@ -589,7 +591,7 @@ class ReportExportDialog(ctk.CTkToplevel):
             self,
             text="Export document report",
             font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
         ).pack(anchor="w", padx=16, pady=(16, 8))
 
         ctk.CTkLabel(self, text="Format:").pack(anchor="w", padx=16, pady=(4, 2))
@@ -612,8 +614,8 @@ class ReportExportDialog(ctk.CTkToplevel):
             row,
             text="Browse",
             width=86,
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self._browse,
         ).grid(row=0, column=1)
 
@@ -625,8 +627,8 @@ class ReportExportDialog(ctk.CTkToplevel):
             text="Cancel",
             width=120,
             height=38,
-            fg_color="#555555",
-            hover_color="#444444",
+            fg_color=("#a0a0a0", "#555555"),
+            hover_color=("#888888", "#444444"),
             command=self.destroy,
         ).pack(side="right", padx=(10, 0), pady=7)
         ctk.CTkButton(

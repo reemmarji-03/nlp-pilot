@@ -16,7 +16,7 @@ from core.settings_manager import settings
 
 class RAGTab(ctk.CTkFrame):
     def __init__(self, parent, state):
-        super().__init__(parent, fg_color="#0f0f0f")
+        super().__init__(parent, fg_color=("#f0f0f0", "#0f0f0f"))
         self.state = state
 
         self.db = None
@@ -34,13 +34,13 @@ class RAGTab(ctk.CTkFrame):
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=0)
 
-        sidebar = ctk.CTkFrame(self, fg_color="#121212", corner_radius=10)
+        sidebar = ctk.CTkFrame(self, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="ns", padx=10, pady=10)
 
         ctk.CTkLabel(
             sidebar,
             text="RAG Assistant",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(pady=(15, 20))
 
@@ -59,20 +59,20 @@ class RAGTab(ctk.CTkFrame):
         self.status_label = ctk.CTkLabel(
             sidebar,
             text="Open RAG after loading a document.",
-            text_color="#aaaaaa",
+            text_color=("#666666", "#aaaaaa"),
             wraplength=180,
             justify="left",
         )
         self.status_label.pack(fill="x", padx=10, pady=(8, 0))
 
         self.index_log = ctk.CTkTextbox(
-            self, fg_color="#1a1a1a", text_color="white", wrap="word"
+            self, fg_color=("#ffffff", "#1a1a1a"), text_color=("#111111", "white"), wrap="word"
         )
         self.index_log.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
         self.chat_frame = ctk.CTkScrollableFrame(
             self,
-            fg_color="#101010",
+            fg_color=("#f5f5f5", "#101010"),
         )
         self.chat_frame.grid(row=0, column=2, sticky="nsew", padx=10, pady=10)
         self.add_message("ai", "RAG chat will be ready after the index is built.")
@@ -155,27 +155,29 @@ class RAGTab(ctk.CTkFrame):
         container.pack(fill="x", pady=4, padx=4)
 
         if role == "user":
-            bubble_color = "#175ea8"
+            bubble_fg = ("#0078ff", "#175ea8")
+            text_col = ("white", "white")
             justify = "right"
             container.columnconfigure(0, weight=1)
             column = 1
             sticky = "e"
             padx = (40, 0)
         else:
-            bubble_color = "#242424"
+            bubble_fg = ("#e4e4e4", "#242424")
+            text_col = ("#111111", "white")
             justify = "left"
             container.columnconfigure(1, weight=1)
             column = 0
             sticky = "w"
             padx = (0, 40)
 
-        bubble = ctk.CTkFrame(container, fg_color=bubble_color, corner_radius=10)
+        bubble = ctk.CTkFrame(container, fg_color=bubble_fg, corner_radius=10)
         bubble.grid(row=0, column=column, sticky=sticky, padx=padx)
 
         label = ctk.CTkLabel(
             bubble,
             text=f"{text}",
-            text_color="white",
+            text_color=text_col,
             font=("Consolas", 11),
             justify=justify,
             wraplength=600,
