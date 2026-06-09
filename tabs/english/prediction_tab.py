@@ -106,7 +106,7 @@ class PredictionTab(ctk.CTkFrame):
     """
 
     def __init__(self, parent, state: EnglishState):
-        super().__init__(parent, fg_color="#0f0f0f")
+        super().__init__(parent, fg_color=("#f0f0f0", "#0f0f0f"))
         self.state = state
 
         # TaskRunner instances for background work
@@ -218,7 +218,7 @@ class PredictionTab(ctk.CTkFrame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        tabview = ctk.CTkTabview(self, fg_color="#1a1a1a")
+        tabview = ctk.CTkTabview(self, fg_color=("#ffffff", "#1a1a1a"))
         tabview.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         supervised_tab = tabview.add("Supervised")
@@ -236,13 +236,13 @@ class PredictionTab(ctk.CTkFrame):
         parent.columnconfigure(1, weight=1)
 
         # Sidebar
-        sidebar = ctk.CTkScrollableFrame(parent, fg_color="#121212", corner_radius=10)
+        sidebar = ctk.CTkScrollableFrame(parent, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
         ctk.CTkLabel(
             sidebar,
             text="Supervised Prediction",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(pady=(10, 5))
 
@@ -255,7 +255,7 @@ class PredictionTab(ctk.CTkFrame):
                 "Uses the last vectorization settings\n"
                 "from the Vectorization tab."
             ),
-            text_color="#bbbbbb",
+            text_color=("#555555", "#bbbbbb"),
             font=ctk.CTkFont(size=11),
             justify="left",
         ).pack(padx=10, pady=(0, 10))
@@ -264,7 +264,7 @@ class PredictionTab(ctk.CTkFrame):
         self.supervised_vector_label = ctk.CTkLabel(
             sidebar,
             text=self._format_vector_settings(),
-            text_color="#dddddd",
+            text_color=("#222222", "#dddddd"),
             font=ctk.CTkFont(size=11),
             justify="left",
         )
@@ -274,7 +274,7 @@ class PredictionTab(ctk.CTkFrame):
         ctk.CTkLabel(
             sidebar,
             text="Label column:",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13),
         ).pack(anchor="w", padx=10, pady=(5, 0))
 
@@ -291,7 +291,7 @@ class PredictionTab(ctk.CTkFrame):
         ctk.CTkLabel(
             sidebar,
             text="Model:",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13),
         ).pack(anchor="w", padx=10, pady=(5, 0))
 
@@ -306,15 +306,15 @@ class PredictionTab(ctk.CTkFrame):
         ctk.CTkButton(
             sidebar,
             text="Manage Models",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.open_model_manager,
         ).pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkButton(
             sidebar,
             text="Training Settings",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.open_supervised_settings,
         ).pack(fill="x", padx=10, pady=(0, 14))
 
@@ -330,19 +330,19 @@ class PredictionTab(ctk.CTkFrame):
         ctk.CTkButton(
             sidebar,
             text="Export Results",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.open_supervised_export_dialog,
         ).pack(fill="x", padx=10, pady=(0, 10))
         self.sup_progress = ProgressOverlay(sidebar, task_runner=self.sup_runner)
 
         # Right side: metrics + plot
-        right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
+        right = ctk.CTkFrame(parent, fg_color=("#ffffff", "#1a1a1a"), corner_radius=10)
         right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
 
-        subtab = ctk.CTkTabview(right, fg_color="#1a1a1a")
+        subtab = ctk.CTkTabview(right, fg_color=("#ffffff", "#1a1a1a"))
         subtab.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         metrics_tab = subtab.add("Metrics")
@@ -350,14 +350,14 @@ class PredictionTab(ctk.CTkFrame):
 
         self.supervised_metrics_box = ctk.CTkTextbox(
             metrics_tab,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 11),
             wrap="word",
         )
         self.supervised_metrics_box.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.supervised_plot_container = ctk.CTkFrame(plot_tab, fg_color="#1a1a1a")
+        self.supervised_plot_container = ctk.CTkFrame(plot_tab, fg_color=("#ffffff", "#1a1a1a"))
         self.supervised_plot_container.pack(fill="both", expand=True, padx=10, pady=10)
 
     def refresh_supervised_columns(self, silent: bool = False):
@@ -752,13 +752,13 @@ class PredictionTab(ctk.CTkFrame):
         parent.columnconfigure(1, weight=1)
 
         # Sidebar
-        sidebar = ctk.CTkFrame(parent, fg_color="#121212", corner_radius=10)
+        sidebar = ctk.CTkFrame(parent, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
         ctk.CTkLabel(
             sidebar,
             text="Unsupervised Clustering",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(pady=(10, 5))
 
@@ -772,7 +772,7 @@ class PredictionTab(ctk.CTkFrame):
                 "- K-Means (animated)\n"
                 "- K-Means (static sklearn)"
             ),
-            text_color="#bbbbbb",
+            text_color=("#555555", "#bbbbbb"),
             font=ctk.CTkFont(size=11),
             justify="left",
         ).pack(padx=10, pady=(0, 10))
@@ -780,7 +780,7 @@ class PredictionTab(ctk.CTkFrame):
         self.clustering_vector_label = ctk.CTkLabel(
             sidebar,
             text=self._format_vector_settings(),
-            text_color="#dddddd",
+            text_color=("#222222", "#dddddd"),
             font=ctk.CTkFont(size=11),
             justify="left",
         )
@@ -790,7 +790,7 @@ class PredictionTab(ctk.CTkFrame):
         ctk.CTkLabel(
             sidebar,
             text="Clustering mode:",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13),
         ).pack(anchor="w", padx=10, pady=(5, 0))
 
@@ -806,7 +806,7 @@ class PredictionTab(ctk.CTkFrame):
         ctk.CTkLabel(
             sidebar,
             text="Number of clusters (k):",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13),
         ).pack(anchor="w", padx=10, pady=(5, 0))
 
@@ -825,22 +825,22 @@ class PredictionTab(ctk.CTkFrame):
         self._clust_elbow_btn = ctk.CTkButton(
             sidebar,
             text="Elbow method (suggest k)",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.run_elbow_method,
         )
         self._clust_elbow_btn.pack(fill="x", padx=10, pady=(0, 10))
         ctk.CTkButton(
             sidebar,
             text="Export clusters (CSV)",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.export_clusters_csv,
         ).pack(fill="x", padx=10, pady=(0, 10))
         self.clust_progress = ProgressOverlay(sidebar, task_runner=self.clust_runner)
 
         # Right side: summary + plot/animation
-        right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
+        right = ctk.CTkFrame(parent, fg_color=("#ffffff", "#1a1a1a"), corner_radius=10)
         right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
         right.rowconfigure(1, weight=1)
         right.columnconfigure(0, weight=1)
@@ -848,8 +848,8 @@ class PredictionTab(ctk.CTkFrame):
         # Summary textbox (top)
         self.cluster_summary_box = ctk.CTkTextbox(
             right,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 11),
             wrap="word",
             height=120,
@@ -857,7 +857,7 @@ class PredictionTab(ctk.CTkFrame):
         self.cluster_summary_box.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
         # Plot/Canvas area (bottom)
-        self.cluster_plot_container = ctk.CTkFrame(right, fg_color="#1a1a1a")
+        self.cluster_plot_container = ctk.CTkFrame(right, fg_color=("#ffffff", "#1a1a1a"))
         self.cluster_plot_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 10))
 
     def _clear_cluster_plot(self):
@@ -1326,13 +1326,13 @@ class PredictionTab(ctk.CTkFrame):
         parent.columnconfigure(1, weight=1)
 
         # Sidebar
-        sidebar = ctk.CTkFrame(parent, fg_color="#121212", corner_radius=10)
+        sidebar = ctk.CTkFrame(parent, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
         ctk.CTkLabel(
             sidebar,
             text="Topic Modeling (BERTopic)",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(pady=(10, 5))
 
@@ -1345,7 +1345,7 @@ class PredictionTab(ctk.CTkFrame):
                 "2) Choose text column there\n"
                 "3) Click 'Run BERTopic' below."
             ),
-            text_color="#bbbbbb",
+            text_color=("#555555", "#bbbbbb"),
             font=ctk.CTkFont(size=11),
             justify="left",
         ).pack(padx=10, pady=(0, 10))
@@ -1361,14 +1361,14 @@ class PredictionTab(ctk.CTkFrame):
         ctk.CTkButton(
             sidebar,
             text="Export Topics",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.open_topic_export_dialog,
         ).pack(fill="x", padx=10, pady=(0, 10))
         self.topic_progress = ProgressOverlay(sidebar, task_runner=self.topic_runner)
 
         # Right side: Summary + Plot
-        right = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=10)
+        right = ctk.CTkFrame(parent, fg_color=("#ffffff", "#1a1a1a"), corner_radius=10)
         right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
         right.rowconfigure(1, weight=1)
         right.columnconfigure(0, weight=1)
@@ -1376,8 +1376,8 @@ class PredictionTab(ctk.CTkFrame):
         # TOPIC SUMMARY BOX
         self.topic_summary_box = ctk.CTkTextbox(
             right,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 11),
             wrap="word",
             height=160,
@@ -1388,7 +1388,7 @@ class PredictionTab(ctk.CTkFrame):
         self.topic_summary_box.bind("<Double-1>", self._show_topic_examples)
 
         # Plot area
-        self.topic_plot_container = ctk.CTkFrame(right, fg_color="#1a1a1a")
+        self.topic_plot_container = ctk.CTkFrame(right, fg_color=("#ffffff", "#1a1a1a"))
         self.topic_plot_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5, 10))
 
         self.topic_plot_canvas = None
@@ -1568,7 +1568,7 @@ class PredictionTab(ctk.CTkFrame):
         win.title(f"Topic {tid} – Example Documents")
         win.geometry("650x500")
 
-        txt = ctk.CTkTextbox(win, fg_color="#101010", text_color="white", wrap="word")
+        txt = ctk.CTkTextbox(win, fg_color=("#ffffff", "#101010"), text_color=("#111111", "white"), wrap="word")
         txt.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Add terms
@@ -1624,7 +1624,7 @@ class TopicExportDialog(ctk.CTkToplevel):
             self,
             text="Export topic modeling output",
             font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
         ).pack(anchor="w", padx=16, pady=(16, 8))
 
         ctk.CTkLabel(self, text="Format:").pack(anchor="w", padx=16, pady=(4, 2))
@@ -1647,8 +1647,8 @@ class TopicExportDialog(ctk.CTkToplevel):
             row,
             text="Browse",
             width=86,
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self._browse,
         ).grid(row=0, column=1)
 
@@ -1660,8 +1660,8 @@ class TopicExportDialog(ctk.CTkToplevel):
             text="Cancel",
             width=120,
             height=38,
-            fg_color="#555555",
-            hover_color="#444444",
+            fg_color=("#a0a0a0", "#555555"),
+            hover_color=("#888888", "#444444"),
             command=self.destroy,
         ).pack(side="right", padx=(10, 0), pady=7)
         ctk.CTkButton(
@@ -1730,7 +1730,7 @@ class SupervisedSettingsWindow(ctk.CTkToplevel):
             self,
             text="Supervised Training Settings",
             font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(16, 10))
 
         fields = [
@@ -1764,8 +1764,8 @@ class SupervisedSettingsWindow(ctk.CTkToplevel):
         ctk.CTkButton(
             buttons,
             text="Cancel",
-            fg_color="#555555",
-            hover_color="#444444",
+            fg_color=("#a0a0a0", "#555555"),
+            hover_color=("#888888", "#444444"),
             command=self.destroy,
         ).pack(side="right", padx=(8, 0))
         ctk.CTkButton(
@@ -1816,7 +1816,7 @@ class SupervisedExportDialog(ctk.CTkToplevel):
             self,
             text="Export supervised output",
             font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
         ).pack(anchor="w", padx=16, pady=(16, 8))
 
         ctk.CTkLabel(self, text="Format:").pack(anchor="w", padx=16, pady=(4, 2))
@@ -1839,8 +1839,8 @@ class SupervisedExportDialog(ctk.CTkToplevel):
             row,
             text="Browse",
             width=86,
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self._browse,
         ).grid(row=0, column=1)
 
@@ -1852,8 +1852,8 @@ class SupervisedExportDialog(ctk.CTkToplevel):
             text="Cancel",
             width=120,
             height=38,
-            fg_color="#555555",
-            hover_color="#444444",
+            fg_color=("#a0a0a0", "#555555"),
+            hover_color=("#888888", "#444444"),
             command=self.destroy,
         ).pack(side="right", padx=(10, 0), pady=7)
         ctk.CTkButton(
@@ -1929,7 +1929,7 @@ class ModelManagerWindow(ctk.CTkToplevel):
             self,
             text="Custom Supervised Models",
             font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=16, pady=(16, 8))
 
         ctk.CTkLabel(self, text="Display name:").grid(
@@ -1959,8 +1959,8 @@ class ModelManagerWindow(ctk.CTkToplevel):
             self,
             text="Browse",
             width=80,
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self._browse,
         ).grid(row=3, column=2, sticky="e", padx=(0, 16), pady=4)
 
@@ -2004,15 +2004,15 @@ class ModelManagerWindow(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_row,
             text="Remove Selected",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self._remove_selected,
         ).pack(side="left", padx=(8, 0))
         ctk.CTkButton(
             btn_row,
             text="Close",
-            fg_color="#555555",
-            hover_color="#444444",
+            fg_color=("#a0a0a0", "#555555"),
+            hover_color=("#888888", "#444444"),
             command=self.destroy,
         ).pack(side="right")
 

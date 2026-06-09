@@ -8,6 +8,7 @@ from tkinter import messagebox
 
 from core.settings_manager import settings
 from core.reproducibility import set_global_seed
+from core import theme_manager as theme
 
 
 class SettingsWindow(ctk.CTkToplevel):
@@ -46,13 +47,25 @@ class SettingsWindow(ctk.CTkToplevel):
         self._refresh_ollama_models(silent=True)
 
         seed_row = ctk.CTkFrame(self, fg_color="transparent")
-        seed_row.pack(fill="x", padx=20, pady=(0, 16))
-        ctk.CTkLabel(seed_row, text="Random seed:", text_color="#cccccc").pack(
+        seed_row.pack(fill="x", padx=20, pady=(0, 8))
+        ctk.CTkLabel(seed_row, text="Random seed:", text_color=("#444444", "#cccccc")).pack(
             side="left"
         )
         self._seed_entry = ctk.CTkEntry(seed_row, width=70)
         self._seed_entry.insert(0, str(self._data.get("random_seed", 42)))
         self._seed_entry.pack(side="left", padx=(8, 0))
+
+        theme_row = ctk.CTkFrame(self, fg_color="transparent")
+        theme_row.pack(fill="x", padx=20, pady=(0, 16))
+        ctk.CTkLabel(theme_row, text="Theme:", text_color=("#444444", "#cccccc")).pack(side="left")
+        self._theme_combo = ctk.CTkComboBox(
+            theme_row,
+            values=["light", "dark"],
+            state="readonly",
+            width=100,
+        )
+        self._theme_combo.set(self._data.get("theme_mode", "light"))
+        self._theme_combo.pack(side="left", padx=(8, 0))
 
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(0, 16))
@@ -308,6 +321,9 @@ class SettingsWindow(ctk.CTkToplevel):
             settings.data["random_seed"] = int(self._seed_entry.get())
         except ValueError:
             settings.data["random_seed"] = 42
+        new_mode = self._theme_combo.get()
+        settings.data["theme_mode"] = new_mode
+        theme.set_mode(new_mode)
         settings.save()
         set_global_seed(settings.get_seed())
         if hasattr(self.master, "on_settings_changed"):

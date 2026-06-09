@@ -5,6 +5,7 @@ from tkinter import messagebox, Listbox, END, filedialog
 
 from core.english_state import EnglishState
 from core import english_nlp as enlp
+from core import theme_manager as theme
 
 
 class PreprocessTab(ctk.CTkFrame):
@@ -16,7 +17,7 @@ class PreprocessTab(ctk.CTkFrame):
     """
 
     def __init__(self, parent, state: EnglishState):
-        super().__init__(parent, fg_color="#0f0f0f")
+        super().__init__(parent, fg_color=("#f0f0f0", "#0f0f0f"))
         self.state = state
         self.regex_pattern_entry = None
         self.regex_replace_entry = None
@@ -54,20 +55,21 @@ class PreprocessTab(ctk.CTkFrame):
         self.rowconfigure(0, weight=1)
 
         # ========== LEFT: Available steps ==========
-        left = ctk.CTkFrame(self, fg_color="#121212", corner_radius=10)
+        left = ctk.CTkFrame(self, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         left.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
 
         ctk.CTkLabel(
             left,
             text="Available Steps",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(pady=(10, 5))
 
         # container for padding & nicer look
-        available_container = ctk.CTkFrame(left, fg_color="#121212", corner_radius=8)
+        available_container = ctk.CTkFrame(left, fg_color=("#e8e8e8", "#121212"), corner_radius=8)
         available_container.pack(fill="both", expand=True, padx=10, pady=10)
 
+        s = theme.scalars()
         self.available_list = Listbox(
             available_container,
             height=14,
@@ -75,10 +77,10 @@ class PreprocessTab(ctk.CTkFrame):
             font=("Segoe UI", 14),
             justify="center",
             activestyle="none",
-            bg="#1e1e1e",
-            fg="white",
+            bg=s["listbox_bg"],
+            fg=s["listbox_fg"],
             highlightthickness=1,
-            highlightbackground="#333333",
+            highlightbackground=s["listbox_hl"],
             selectbackground="#0078ff",
             selectforeground="white",
             borderwidth=0,
@@ -97,21 +99,22 @@ class PreprocessTab(ctk.CTkFrame):
             text="Add →",
             fg_color="#0078ff",
             hover_color="#005dc1",
+            text_color="white",
             command=self.add_selected_step
         ).pack(padx=10, pady=(0, 10), anchor="e")
 
         # ========== MIDDLE: Current pipeline ==========
-        mid = ctk.CTkFrame(self, fg_color="#121212", corner_radius=10)
+        mid = ctk.CTkFrame(self, fg_color=("#e8e8e8", "#121212"), corner_radius=10)
         mid.grid(row=0, column=1, sticky="nsew", padx=5, pady=10)
 
         ctk.CTkLabel(
             mid,
             text="Current Pipeline (top → bottom)",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(pady=(10, 5))
 
-        pipeline_container = ctk.CTkFrame(mid, fg_color="#121212", corner_radius=8)
+        pipeline_container = ctk.CTkFrame(mid, fg_color=("#e8e8e8", "#121212"), corner_radius=8)
         pipeline_container.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.pipeline_list = Listbox(
@@ -121,10 +124,10 @@ class PreprocessTab(ctk.CTkFrame):
             font=("Segoe UI", 14, "bold"),
             justify="center",
             activestyle="none",
-            bg="#1e1e1e",
-            fg="white",
+            bg=s["listbox_bg"],
+            fg=s["listbox_fg"],
             highlightthickness=1,
-            highlightbackground="#333333",
+            highlightbackground=s["listbox_hl"],
             selectbackground="#0078ff",
             selectforeground="white",
             borderwidth=0,
@@ -139,15 +142,15 @@ class PreprocessTab(ctk.CTkFrame):
         self.pipeline_list.bind("<Button-1>", self.on_pipeline_press)
         self.pipeline_list.bind("<ButtonRelease-1>", self.on_pipeline_release)
 
-        btn_frame = ctk.CTkFrame(mid, fg_color="#121212")
+        btn_frame = ctk.CTkFrame(mid, fg_color=("#e8e8e8", "#121212"))
         btn_frame.pack(fill="x", padx=10, pady=(0, 10))
 
         ctk.CTkButton(
             btn_frame,
             text="← Remove",
             width=80,
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.remove_selected_step
         ).pack(side="left", padx=2)
 
@@ -155,8 +158,8 @@ class PreprocessTab(ctk.CTkFrame):
             btn_frame,
             text="Move Up",
             width=80,
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.move_step_up
         ).pack(side="left", padx=2)
 
@@ -164,30 +167,30 @@ class PreprocessTab(ctk.CTkFrame):
             btn_frame,
             text="Move Down",
             width=80,
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.move_step_down
         ).pack(side="left", padx=2)
 
         # ========== RIGHT: Parameters + Preview + Export ==========
-        right = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=10)
+        right = ctk.CTkFrame(self, fg_color=("#ffffff", "#1a1a1a"), corner_radius=10)
         right.grid(row=0, column=2, sticky="nsew", padx=(5, 10), pady=10)
 
         ctk.CTkLabel(
             right,
             text="Parameters & Preview",
-            text_color="#6ea8fe",
+            text_color=("#0062cc", "#6ea8fe"),
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(pady=(10, 5), anchor="w", padx=10)
 
         # short token parameter (global for that step for now)
-        param_frame = ctk.CTkFrame(right, fg_color="#1a1a1a")
+        param_frame = ctk.CTkFrame(right, fg_color=("#ffffff", "#1a1a1a"))
         param_frame.pack(fill="x", padx=10, pady=(0, 5))
 
         ctk.CTkLabel(
             param_frame,
             text="Min token length (for 'Remove short tokens'):",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13)
         ).pack(anchor="w")
 
@@ -198,20 +201,20 @@ class PreprocessTab(ctk.CTkFrame):
         )
         self.short_min_len_entry.pack(anchor="w", pady=(2, 5))
         # --- NEW: Regex replace (GUI-only, not part of LangGraph steps) ---
-        regex_frame = ctk.CTkFrame(right, fg_color="#1a1a1a")
+        regex_frame = ctk.CTkFrame(right, fg_color=("#ffffff", "#1a1a1a"))
         regex_frame.pack(fill="x", padx=10, pady=(0, 5))
 
         ctk.CTkLabel(
             regex_frame,
             text="regex Pattern",
-            text_color="#cccccc",
+            text_color=("#444444", "#cccccc"),
             font=ctk.CTkFont(size=13, weight="bold"),
         ).pack(anchor="w", pady=(0, 2))
 
         ctk.CTkLabel(
             regex_frame,
             text="Pattern (Python regex):",
-            text_color="#aaaaaa",
+            text_color=("#666666", "#aaaaaa"),
             font=ctk.CTkFont(size=12),
         ).pack(anchor="w")
 
@@ -225,7 +228,7 @@ class PreprocessTab(ctk.CTkFrame):
         ctk.CTkLabel(
             regex_frame,
             text="Replacement string",
-            text_color="#aaaaaa",
+            text_color=("#666666", "#aaaaaa"),
             font=ctk.CTkFont(size=12),
         ).pack(anchor="w")
 
@@ -239,8 +242,8 @@ class PreprocessTab(ctk.CTkFrame):
         # preview box
         self.preview_box = ctk.CTkTextbox(
             right,
-            fg_color="#1a1a1a",
-            text_color="white",
+            fg_color=("#ffffff", "#1a1a1a"),
+            text_color=("#111111", "white"),
             font=("Consolas", 12),
             wrap="word"
         )
@@ -249,22 +252,15 @@ class PreprocessTab(ctk.CTkFrame):
         # ---- Text tags for styled CSV preview ----
         tw = self.preview_box._textbox  # underlying tk.Text
 
-        tw.tag_configure(
-            "row_header",
-            foreground="#6ea8fe",
-            font=("Consolas", 12, "bold")
-        )
-        tw.tag_configure(
-            "row_bg_even",
-            background="#181818"
-        )
-        tw.tag_configure(
-            "row_bg_odd",
-            background="#141414"
-        )
+        accent = "#0062cc" if not theme.is_dark() else "#6ea8fe"
+        even_bg = "#f0f0f0" if not theme.is_dark() else "#181818"
+        odd_bg = "#e8e8e8" if not theme.is_dark() else "#141414"
+        tw.tag_configure("row_header", foreground=accent, font=("Consolas", 12, "bold"))
+        tw.tag_configure("row_bg_even", background=even_bg)
+        tw.tag_configure("row_bg_odd", background=odd_bg)
 
         # Buttons under preview
-        btn_right_frame = ctk.CTkFrame(right, fg_color="#1a1a1a")
+        btn_right_frame = ctk.CTkFrame(right, fg_color=("#ffffff", "#1a1a1a"))
         btn_right_frame.pack(fill="x", padx=10, pady=(0, 10))
 
         ctk.CTkButton(
@@ -278,8 +274,8 @@ class PreprocessTab(ctk.CTkFrame):
         ctk.CTkButton(
             btn_right_frame,
             text="Apply to CSV & Download",
-            fg_color="#444444",
-            hover_color="#333333",
+            fg_color=("#a0a0a0", "#444444"),
+            hover_color=("#888888", "#333333"),
             command=self.export_preprocessed_csv
         ).pack(side="left", padx=(5, 0))
 
@@ -555,6 +551,23 @@ class PreprocessTab(ctk.CTkFrame):
         else:
             self.preview_box.insert("end", "(Preview on full document)\n\n")
         self.preview_box.insert("end", processed)
+
+    def apply_theme(self):
+        s = theme.scalars()
+        for lb in (self.available_list, self.pipeline_list):
+            lb.configure(
+                bg=s["listbox_bg"],
+                fg=s["listbox_fg"],
+                highlightbackground=s["listbox_hl"],
+            )
+        if self.preview_box:
+            tw = self.preview_box._textbox
+            accent = "#0062cc" if not theme.is_dark() else "#6ea8fe"
+            even_bg = "#f0f0f0" if not theme.is_dark() else "#181818"
+            odd_bg = "#e8e8e8" if not theme.is_dark() else "#141414"
+            tw.tag_configure("row_header", foreground=accent)
+            tw.tag_configure("row_bg_even", background=even_bg)
+            tw.tag_configure("row_bg_odd", background=odd_bg)
 
     # CSV export: apply pipeline to all rows and download
 

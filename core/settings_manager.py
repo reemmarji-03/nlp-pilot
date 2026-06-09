@@ -8,6 +8,7 @@ from typing import Optional
 DEFAULTS: dict = {
     "active_provider": "ollama",
     "random_seed": 42,
+    "theme_mode": "light",
     "ollama": {
         "url": "http://localhost:11434",
         "model": "qwen3:4b",

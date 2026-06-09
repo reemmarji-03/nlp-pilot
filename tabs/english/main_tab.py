@@ -11,7 +11,7 @@ from .rag_tab import RAGTab
 
 class EnglishTab(ctk.CTkFrame):
     def __init__(self, parent):
-        super().__init__(parent, fg_color="#0f0f0f")
+        super().__init__(parent, fg_color=("#f0f0f0", "#0f0f0f"))
         self.state = EnglishState()
         self.build_ui()
 
@@ -43,6 +43,10 @@ class EnglishTab(ctk.CTkFrame):
         self.prediction_tab.sync_with_state()
         if hasattr(self, "rag_tab"):
             self.rag_tab.invalidate_index()
+
+    def apply_theme(self):
+        if hasattr(self, "prep_tab"):
+            self.prep_tab.apply_theme()
 
     def on_settings_changed(self):
         if hasattr(self, "rag_tab"):
